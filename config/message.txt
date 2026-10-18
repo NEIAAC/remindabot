@@ -1,0 +1,34 @@
+ESTE FICHEIRO É O TEXTO DA MENSAGEM QUE O BOT ENVIA (mensagem privada, formato Markdown do Mattermost).
+Tudo o que está ACIMA da linha de corte abaixo é só um comentário para quem edita e nunca é enviado.
+Edita o texto por baixo da linha; as alterações são lidas na próxima execução diária (não é preciso reiniciar).
+
+Variáveis disponíveis (escrever exatamente assim, com $ à frente; para um $ literal usa $$):
+
+  $responsible_name   nome de quem recebe a mensagem
+  $co_responsibles    as OUTRAS pessoas avisadas sobre o cartão (vazio se não houver)
+  $card_title         título do cartão
+  $board_title        nome do quadro
+  $due_date           data limite, ex.: 25/10/2026
+  $due_date_long      data limite por extenso, ex.: domingo, 25 de outubro de 2026
+  $days_left          dias que faltam, ex.: 12
+  $days_left_text     frase completa: "faltam 12 dias", "falta 1 dia" ou "é hoje"
+  $remind_before      o lembrete que originou esta mensagem, em dias (7 = o lembrete "7 dias antes")
+  $card_url           ligação direta para o cartão
+
+ATENÇÃO: se a variável for seguida de uma letra, número ou _ (por exemplo o _ do itálico em Markdown),
+escreve-a com chavetas: ${board_title}. Sem chavetas, "$board_title_" seria lido como outra variável.
+
+Se escreveres uma variável que não existe (ex.: $card_titulo), o bot recusa-se a enviar e escreve o erro nos logs.
+-----8<-----
+Olá $responsible_name! :wave:
+
+Este é um lembrete automático da equipa de Comunicação: a informação do cartão **$card_title** (quadro _${board_title}_) tem de estar preenchida e confirmada até **$due_date_long** (**$days_left_text**).
+
+Por favor, verifica se estão completos e corretos:
+- a descrição do post;
+- o local;
+- a hora.
+
+:point_right: [Abrir o cartão]($card_url)
+
+Obrigado! :pray:

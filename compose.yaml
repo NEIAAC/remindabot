@@ -1,0 +1,180 @@
+# A throwaway local copy of the whole chat setup, to work on the bot with NO real data:
+#
+#   docker compose up -d --build     start it (the first time: downloads, plugin install, demo data)
+#   docker compose down -v           stop it and delete everything, volumes included
+#
+# It is the production layout in miniature: Postgres, Mattermost Team Edition and the Boards plugin
+# (the versions production runs), the bot built from this repository's Dockerfile and run the way
+# production runs it (read-only filesystem, no capabilities), with its /remind_* chat commands
+# registered. Log in at http://localhost:8066 as `devadmin` (password below) and type /remind_help.
+# See docs/development.md.
+#
+#   postgres, mattermost   the chat server (127.0.0.1:8066 is the only way in, from this machine only)
+#   seed                   runs once: Boards plugin, users, bot, demo boards  (scripts/dev-seed.sh)
+#   register               runs once: creates the bot's slash commands       (--register-commands)
+#   reminder               the bot itself
+#   unit, e2e              tests, only with `--profile test` (docs/development.md)
+#
+# The project name fixes the Docker network name (chat-dev_default), which scripts/check-image.sh
+# uses; on it Mattermost is http://mattermost:8065 and the bot is http://reminder:8080.
+name: chat-dev
+
+x-bot: &bot
+  build: .
+  image: remindabot:dev
+  pull_policy: never           # always the image built from this checkout
+
+x-toolbox: &toolbox
+  build:
+    context: dev/toolbox
+    args:
+      BOARDS_VERSION: ${BOARDS_VERSION:-9.1.3}
+  image: remindabot-toolbox:dev
+
+services:
+  postgres:
+    image: postgres:13-alpine          # same major version as production
+    container_name: chat-dev-db
+    restart: "no"
+    volumes:
+      - database:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=mmuser
+      - POSTGRES_PASSWORD=mmuser_dev
+      - POSTGRES_DB=mattermost
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:${MM_VERSION:-10.9.1}     # keep equal to production
+    container_name: chat-dev-web
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8066:8065"          # only this machine can reach it
+    environment:
+      - TZ=Europe/Lisbon
+      - MM_SQLSETTINGS_DRIVERNAME=postgres
+      - MM_SQLSETTINGS_DATASOURCE=postgres://mmuser:mmuser_dev@postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+      - MM_SERVICESETTINGS_SITEURL=http://localhost:8066
+      - MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION=true     # the bot account
+      - MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS=true       # the bot's token
+      - MM_PLUGINSETTINGS_ENABLEUPLOADS=true                 # lets `seed` install Boards
+      - MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS=false
+      # Mattermost refuses to call a private address unless its name is listed; this is what the
+      # slash commands need (production sets the same, see the README of the chat repository)
+      - MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS=reminder
+      # nothing here should ever try to reach the outside world
+      - MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
+      - MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS=false
+      - MM_LOGSETTINGS_ENABLEDIAGNOSTICS=false
+      - MM_SERVICESETTINGS_ENABLESECURITYFIXALERT=false
+      - MM_PLUGINSETTINGS_ENABLEMARKETPLACE=false
+      - MM_BLEVESETTINGS_ENABLEINDEXING=false
+      - MM_BLEVESETTINGS_ENABLESEARCHING=false
+      - MM_BLEVESETTINGS_ENABLEAUTOCOMPLETE=false
+    volumes:
+      - config:/mattermost/config
+      - data:/mattermost/data
+      - logs:/mattermost/logs
+      - plugins:/mattermost/plugins
+      - client:/mattermost/client/plugins
+
+  seed:
+    <<: *toolbox
+    restart: "no"
+    depends_on:
+      - mattermost
+    command: ["bash", "/scripts/dev-seed.sh"]
+    environment:
+      MM_URL: http://mattermost:8065
+      DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-devadmin-password}
+    volumes:
+      - ./scripts:/scripts:ro
+      - secret-bot:/secrets/bot
+      - secret-admin:/secrets/admin
+
+  register:
+    <<: *bot
+    restart: "no"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    command: ["python", "-m", "remindabot", "--register-commands"]
+    environment: &bot-env
+      REMINDER_MM_URL: http://mattermost:8065
+      REMINDER_SITE_URL: http://localhost:8066
+      REMINDER_BOT_TOKEN_FILE: /secrets/bot/token
+      REMINDER_ADMIN_TOKEN_FILE: /secrets/admin/token      # only this one-off step ever sees it
+      REMINDER_TZ: Europe/Lisbon
+      REMINDER_DAILY_PASS: "false"        # a playground never sends by itself: use /remind_send
+    volumes:
+      - state:/data
+      - secret-bot:/secrets/bot:ro
+      - secret-admin:/secrets/admin:ro
+
+  reminder:
+    <<: *bot
+    container_name: chat-dev-reminder
+    restart: unless-stopped
+    depends_on:
+      register:
+        condition: service_completed_successfully
+    environment:
+      <<: *bot-env
+      REMINDER_ADMIN_TOKEN_FILE: ""       # the bot itself never holds an administrator's token
+    # hardened the way production runs it
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - state:/data
+      - secret-bot:/secrets/bot:ro
+      - ./config/message.txt:/config/message.txt:ro
+
+  # --- tests: `docker compose --profile test run --rm unit` / `... e2e` -------------------------------
+
+  unit:       # everything that needs no stack (about 3 minutes)
+    <<: *toolbox
+    profiles: [test]
+    working_dir: /repo
+    command: ["python", "-m", "unittest"]
+    volumes:
+      - .:/repo:ro
+
+  e2e:        # the bot against this very stack (docs/development.md says what it does to it)
+    <<: *toolbox
+    profiles: [test]
+    working_dir: /repo
+    depends_on:
+      reminder:
+        condition: service_healthy
+    command: ["python", "-m", "unittest", "discover", "-s", "tests/e2e", "-t", ".", "-v"]
+    environment:
+      MM_URL: http://mattermost:8065
+      SITE_URL: http://localhost:8066
+      DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-devadmin-password}
+    volumes:
+      - .:/repo:ro
+      - secret-bot:/secrets/bot:ro
+      - secret-admin:/secrets/admin:ro
+
+volumes:
+  database:
+  config:
+  data:
+  logs:
+  plugins:
+  client:
+  state:
+  secret-bot:
+  secret-admin:

@@ -1,0 +1,130 @@
+# A throwaway, ISOLATED copy of your Mattermost, for trying the bot against a copy of real data.
+# See README.md in this folder; dev/sandbox/restore.sh drives it. Nothing here can reach the
+# internet or contact a real person.
+#
+#   internal network  - db + mattermost (+ setup, reminder) live ONLY here; Docker gives it no route
+#                       to the outside.
+#   gate              - a tiny TCP forwarder that publishes the sandbox on 127.0.0.1:8067 so you can
+#                       reach it from this machine. It is the only container with outside access and
+#                       it just copies bytes.
+#   setup             - runs once, from restore.sh: Boards plugin, bot account, bot in every team
+#   reminder          - the bot, for ONE-OFF runs only:
+#                       docker compose -f dev/sandbox/compose.yaml run --rm reminder python -m remindabot --once --dry-run
+name: remindabot-sandbox
+
+services:
+  db:
+    image: postgres:13-alpine          # same major version as the production stack
+    pull_policy: if_not_present
+    networks: [internal]
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: sandbox_only_password
+      POSTGRES_DB: mattermost
+    volumes:
+      - sandbox-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:${MM_VERSION:-10.9.1}   # must match production
+    pull_policy: if_not_present
+    # not started automatically: restore.sh restores and scrubs the data FIRST, then starts it
+    profiles: [app]
+    networks: [internal]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: Europe/Lisbon
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:sandbox_only_password@db:5432/mattermost?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8067
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"          # lets restore.sh create an admin with mmctl --local
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "true"
+      MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS: "false"
+      # --- nothing may leave this sandbox, even if the network allowed it -------------------
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "false"      # the restored sessions hold real phone ids
+      MM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: ""
+      MM_EMAILSETTINGS_SMTPSERVER: ""
+      MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS: "false"
+      MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS: "false"
+      MM_SERVICESETTINGS_ENABLECOMMANDS: "false"
+      MM_SERVICESETTINGS_ENABLESECURITYFIXALERT: "false"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+      MM_PLUGINSETTINGS_ENABLEMARKETPLACE: "false"
+      MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE: "false"
+      MM_BLEVESETTINGS_ENABLEINDEXING: "false"
+      MM_BLEVESETTINGS_ENABLESEARCHING: "false"
+      MM_BLEVESETTINGS_ENABLEAUTOCOMPLETE: "false"
+    volumes:
+      - sandbox-config:/mattermost/config
+      - sandbox-data:/mattermost/data
+      - sandbox-plugins:/mattermost/plugins
+      - sandbox-client:/mattermost/client/plugins
+
+  setup:
+    build:
+      context: ../toolbox
+      args:
+        BOARDS_VERSION: ${BOARDS_VERSION:-9.1.3}
+    image: remindabot-toolbox:dev
+    profiles: [setup]
+    networks: [internal]
+    depends_on:
+      - mattermost
+    command: ["bash", "/scripts/sandbox-setup.sh"]
+    environment:
+      MM_URL: http://mattermost:8065
+      SANDBOX_ADMIN_PASSWORD: ${SANDBOX_ADMIN_PASSWORD:-}
+    volumes:
+      - ../../scripts:/scripts:ro
+
+  reminder:
+    build:
+      context: ../..
+    image: remindabot:dev
+    pull_policy: never
+    profiles: [tools]
+    networks: [internal]
+    depends_on:
+      - mattermost
+    environment:
+      REMINDER_MM_URL: http://mattermost:8065
+      REMINDER_SITE_URL: http://localhost:8067
+      REMINDER_BOT_TOKEN_FILE: /secrets/token
+      REMINDER_TZ: Europe/Lisbon
+      REMINDER_COMMANDS_PORT: "0"          # the chat commands are switched off in the sandbox
+      REMINDER_DAILY_PASS: "false"
+    volumes:
+      - state:/data
+      - ./.sandbox-bot-token:/secrets/token:ro
+
+  gate:
+    image: alpine/socat
+    pull_policy: if_not_present
+    profiles: [app]
+    networks: [internal, outside]
+    command: TCP-LISTEN:8065,fork,reuseaddr TCP:mattermost:8065
+    ports:
+      - "127.0.0.1:8067:8065"          # only this machine can reach the sandbox
+    depends_on: [mattermost]
+
+networks:
+  internal:
+    internal: true                      # no route to the internet
+  outside: {}
+
+volumes:
+  state:
+  sandbox-db:
+  sandbox-config:
+  sandbox-data:
+  sandbox-plugins:
+  sandbox-client:

@@ -1,0 +1,22 @@
+# IDE
+.idea/
+.vscode/
+
+# Miscellaneous
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Environment (never commit tokens)
+*.env*
+!.env.example
+
+# the production-copy sandbox: the bot's token, the admin's password (dev/sandbox)
+dev/sandbox/.sandbox-*
+
+# leftovers of the old tools/ directory (secrets of a throwaway stack): never commit them; delete the directory
+tools/

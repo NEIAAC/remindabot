@@ -1,0 +1,14 @@
+# The image holds only src/ and config/message.txt (see the Dockerfile); keep the rest out of the
+# build context so a change to the docs or the tests never invalidates the image's layers.
+.git
+.github
+tests
+docs
+dev
+scripts
+compose.yaml
+**/__pycache__
+*.pyc
+*.env*
+*.md
+pyproject.toml

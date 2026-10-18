@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "remindabot"
+version = "1.0.0"
+description = "A Mattermost bot that reminds people, by direct message, of the Due Date of Boards cards"
+readme = "README.md"
+requires-python = ">=3.12"
+# None, on purpose: the standard library is enough, so there is nothing to update or to hijack.
+dependencies = []
+
+[project.scripts]
+remindabot = "remindabot.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# The suite is plain `unittest` (python3 -m unittest). These two lines only let pytest, if you prefer
+# it, find the package and the tests the same way.
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # the bot's own image
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+  # the dev tooling image (alpine, python): bash, curl, jq for the scripts and the live-stack tests
+  - package-ecosystem: "docker"
+    directory: "/dev/toolbox"
+    schedule:
+      interval: "weekly"
