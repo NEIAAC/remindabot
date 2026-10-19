@@ -119,7 +119,9 @@ class WriteSurface(CommandsBase):
         self.world()
         clock = ti.FakeClock(datetime(2026, 10, 13, 8, 0, tzinfo=LISBON))
         start = len(self.fake.requests)
-        scheduler.serve(self.cfg, self.mm, self.boards, self.store(clock=lambda: clock.utc.timestamp()),
+        store = self.store(clock=lambda: clock.utc.timestamp())
+        self.addCleanup(store.close)
+        scheduler.serve(self.cfg, self.mm, self.boards, store,
                         now_fn=clock.now, sleep_fn=clock.sleep, max_iterations=7 * 24 * 60)
         self.assert_allowed(writes_since(self.fake, start), "a week of the daily loop")
 
@@ -180,7 +182,7 @@ class Secrets(CommandsBase):
                             ("echo_auth", {"status": 400})):
             self.fake.faults[:] = [Fault(lambda m, p: True, kind, times=6, **extra)]
             try:
-                self.go(store=self.store())
+                self.go()
             except Exception:                                                           # noqa: BLE001 - only the logs matter
                 pass
         self.fake.faults.clear()
@@ -300,6 +302,23 @@ class StateFile(CommandsBase):
         self.assertEqual(db.execute("SELECT * FROM future").fetchall(), [("a", "b")])
         db.close()
 
+    def test_a_store_that_cannot_be_opened_does_not_keep_the_file_open(self):
+        self.state_path.write_bytes(b"this is not a database " * 200)
+        opened, real = [], sqlite3.connect
+
+        def recording(*args, **kwargs):
+            connection = real(*args, **kwargs)
+            opened.append(connection)
+            return connection
+        with mock.patch.object(sqlite3, "connect", recording):
+            for readonly in (False, True):
+                with self.assertRaises(sqlite3.DatabaseError):
+                    Store(self.state_path, readonly=readonly)
+        self.assertEqual(len(opened), 2)
+        for connection in opened:
+            with self.assertRaises(sqlite3.ProgrammingError, msg="the connection was left open"):
+                connection.execute("SELECT 1")                    # "Cannot operate on a closed database"
+
     def test_a_damaged_state_file_is_never_overwritten_or_deleted(self):
         garbage = bytes(random.Random(7).randrange(256) for _ in range(4096))
         self.state_path.write_bytes(garbage)
@@ -342,7 +361,7 @@ class ResourceLeaks(CommandsBase):
                 router.handle_command(self.form(trigger, args))
                 router.handle_command(self.form(trigger, args, token="wrong"))                     # refused
                 router.handle_command(self.form(trigger, args, user=U1, username="alice"))         # refused
-            self.go(store=self.store(), today=TODAY)
+            self.go(today=TODAY)
 
         exercise(8)                                                                  # warm-up: caches, first threads
         self.settle(threading.active_count())
@@ -351,6 +370,18 @@ class ResourceLeaks(CommandsBase):
         self.settle(threads)
         self.assertLessEqual(threading.active_count(), threads, "threads piled up")
         self.assertLessEqual(self.open_files(), files + 2, "files or sockets were left open")
+
+    def test_an_error_answer_from_mattermost_is_closed_at_once(self):
+        """CPython closes a forgotten response by itself (3.13 and newer even warn), which hides the leak."""
+        for kind, extra in (("status", {"status": 500, "body": "boom"}), ("status", {"status": 401, "body": "nope"}),
+                            ("status", {"status": 404, "body": "{}"}), ("redirect", {})):
+            with self.subTest(kind=kind, **extra):
+                self.fake.faults[:] = [Fault(lambda m, p: True, kind, times=1, **extra)]
+                with self.assertRaises(ApiError) as caught:
+                    self.mm.api._once("GET", "/users/me", None)
+                answer = caught.exception.__cause__
+                self.assertIsInstance(answer, urllib.error.HTTPError)
+                self.assertTrue(answer.file.closed, f"the HTTP {answer.code} answer was left open")
 
 
 HOSTILE_TEXT = [
@@ -377,7 +408,7 @@ class HostileDataInTheMessage(ti.Base):
         self.fake.users[U2]["nickname"] = other
         self.fake.add_board("b1", board, member=True)
         self.fake.add_card("b1", "c1", title, due_ms=ti.in_days(5), notifyees=[U1, U2], remind="7;3;1")
-        self.go(store=self.store())
+        self.go()
         return next(p["message"] for p in self.fake.posts if p["user_id"] == U1)
 
     def test_nothing_hostile_survives_in_any_part_of_the_message(self):
@@ -706,7 +737,8 @@ class WebhookAbuse(CommandsBase):
                     with urllib.request.urlopen(request, timeout=10) as resp:
                         status, answer = resp.status, resp.read()
                 except urllib.error.HTTPError as exc:
-                    status, answer = exc.code, exc.read()
+                    with exc:
+                        status, answer = exc.code, exc.read()
                 self.assertIn(status, (200, 400), (n, status, body[:60]))
                 self.assertIsInstance(json.loads(answer or b"null"), (dict, type(None)), (n, answer[:80]))
             self.healthy()

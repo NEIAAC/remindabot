@@ -141,6 +141,7 @@ class Loop(ti.Base):
         self.fake.add_user(ADMIN_ID, "root", roles="system_admin system_user")
         self.clock = ti.FakeClock(datetime(2026, 10, 13, 8, 0, tzinfo=LISBON).astimezone(timezone.utc))
         self.store_ = self.store(clock=lambda: self.clock.utc.timestamp())
+        self.addCleanup(self.store_.close)
         self.settings = Overrides(self.store_)
         self.passes = 0
 
@@ -176,7 +177,9 @@ class Loop(ti.Base):
         self.assertEqual((self.passes, len(self.messages_to(U1))), (1, 1))
 
     def test_a_pause_set_from_another_process_is_noticed_without_a_restart(self):
-        other = Overrides(self.store(clock=lambda: self.clock.utc.timestamp()))   # "the chat commands"
+        other_store = self.store(clock=lambda: self.clock.utc.timestamp())
+        self.addCleanup(other_store.close)
+        other = Overrides(other_store)                                             # "the chat commands"
         real_sleep = self.clock.sleep
 
         def sleep_and_pause(seconds):

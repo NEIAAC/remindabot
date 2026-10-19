@@ -44,6 +44,12 @@ class Cli(ti.Base):
         with mock.patch.dict(os.environ, env, clear=True):
             return main_mod.main(list(argv))
 
+    def read_store(self) -> Store:
+        """The state file, opened read-only to look at what a command left in it."""
+        store = Store(self.state_path, readonly=True)
+        self.addCleanup(store.close)
+        return store
+
     def due_in(self, days: int) -> int:
         """A due date `days` from the REAL today (the CLI uses the clock, not the tests' fixed day)."""
         return noon_utc_ms(datetime.now(ti.LISBON).date() + timedelta(days=days))
@@ -123,7 +129,7 @@ class Cli(ti.Base):
         with self.assertLogs("reminder", level="INFO") as logs:
             self.assertEqual(self.run_cli("--once", "--dry-run"), 0)
         self.assertIn("0 would be sent (DRY-RUN, nothing was sent), 2 already sent", logs.output[-1])
-        self.assertEqual(Store(self.state_path, readonly=True).sent_since(0), 2)   # and it left the file as it was
+        self.assertEqual(self.read_store().sent_since(0), 2)   # and it left the file as it was
 
     def test_a_server_that_is_down_exits_1_not_with_a_traceback(self):
         self.board_with_card()
@@ -144,7 +150,7 @@ class Cli(ti.Base):
             self.assertEqual(self.run_cli("--register-commands", REMINDER_ADMIN_TOKEN=self.fake.admin_token), 0)
         made = self.fake.commands["team1"]
         self.assertEqual(len(made), len(SPECS))
-        store = Store(self.state_path, readonly=True)
+        store = self.read_store()
         saved = Overrides(store).command_tokens()["team1"]
         self.assertEqual(saved, {c["trigger"]: c["token"] for c in made})
         self.assertTrue(any("Try /remind_help" in line for line in logs.output), logs.output)
@@ -175,7 +181,7 @@ class Cli(ti.Base):
             self.assertEqual(self.run_cli("--unregister-commands", REMINDER_ADMIN_TOKEN=self.fake.admin_token), 0)
         self.assertEqual(self.fake.commands["team1"], [])
         self.assertIn(f"{len(SPECS)} command(s) removed", "\n".join(logs.output))
-        self.assertEqual(Overrides(Store(self.state_path, readonly=True)).command_tokens(), {})
+        self.assertEqual(Overrides(self.read_store()).command_tokens(), {})
 
     # --- settings made from chat apply to the one-off commands too ---------------------------
 

@@ -52,7 +52,8 @@ def call(path: str, token: str, method: str = "GET", body=None, timeout: float =
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status, text = resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
-        status, text = exc.code, exc.read().decode("utf-8", "replace")
+        with exc:
+            status, text = exc.code, exc.read().decode("utf-8", "replace")
     try:
         return status, json.loads(text or "null")
     except ValueError:
@@ -68,7 +69,8 @@ def post_raw(url: str, data: bytes, content_type: str = "application/x-www-form-
         with urllib.request.urlopen(request, timeout=timeout) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", "replace")
+        with exc:
+            return exc.code, exc.read().decode("utf-8", "replace")
     except OSError:
         return 0, ""
 

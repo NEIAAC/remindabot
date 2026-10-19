@@ -134,6 +134,7 @@ class World(ti.Base):
         for _, _, _, left in delivered:
             self.assertGreaterEqual(left, 0, f"{label}: a reminder after the due date")
         store = self.store(readonly=True)
+        self.addCleanup(store.close)
         statuses = {row[0] for row in store.db.execute("SELECT status FROM reminders")}
         self.assertEqual(statuses - {"sent"}, set(), f"{label}: something was left half-done")
         self.assertIsNotNone(store.last_run())
@@ -180,7 +181,7 @@ class OrphanVerification(ti.Base):
 
     def first_attempt_loses_its_answer(self, kind: str):
         self.fake.faults[:] = [Fault(self.is_posts, kind, times=1)]
-        summary = self.go(store=self.store())
+        summary = self.go()
         self.assertEqual(summary.failed, 1)
         self.fake.faults.clear()
         self.now_ts += 3600                                              # the claim is now orphaned
@@ -190,27 +191,27 @@ class OrphanVerification(ti.Base):
         self.assertEqual(len(self.fake.posts), 1)
         self.fake.faults[:] = [Fault(self.is_history, "status", status=503)]
         for _ in range(3):                                               # the check keeps failing: it keeps waiting
-            summary = self.go(store=self.store())
+            summary = self.go()
             self.assertEqual(summary.sent, 0)
             self.assertEqual(len(self.fake.posts), 1, "it sent although it could not tell whether it was delivered")
             self.now_ts += 3600
         self.fake.faults.clear()
-        summary = self.go(store=self.store())
+        summary = self.go()
         self.assertEqual((summary.sent, summary.already_sent), (0, 1))
         self.assertEqual(len(self.fake.posts), 1)
-        self.assertEqual(self.go(store=self.store()).sent, 0)
+        self.assertEqual(self.go().sent, 0)
 
     def test_a_message_that_never_arrived_is_sent_once_when_the_check_says_so(self):
         self.first_attempt_loses_its_answer("drop")                      # NOT delivered
         self.assertEqual(self.fake.posts, [])
-        self.assertEqual(self.go(store=self.store()).sent, 1)
-        self.assertEqual(self.go(store=self.store()).sent, 0)
+        self.assertEqual(self.go().sent, 1)
+        self.assertEqual(self.go().sent, 0)
         self.assertEqual(len(self.fake.posts), 1)
 
     def test_a_check_that_answers_with_rubbish_is_a_failure_not_a_yes_or_a_no(self):
         self.first_attempt_loses_its_answer("commit_then_drop")
         self.fake.faults[:] = [Fault(self.is_history, "html")]
-        summary = self.go(store=self.store())
+        summary = self.go()
         self.assertEqual((summary.sent, summary.failed), (0, 1))
         self.assertEqual(len(self.fake.posts), 1)
 

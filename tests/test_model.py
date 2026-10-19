@@ -113,8 +113,11 @@ class WholePass(Quiet):
                 card["properties"]["p_due"] = '{"from": %d}' % ti.in_days(due)
             if rng.random() < 0.25:                       # a dry run first must change nothing at all
                 before = len(self.fake.posts)
-                self.go(today=TODAY + timedelta(days=day), dry_run=True,
-                        store=Store(self.state_path, readonly=True))
+                dry_store = Store(self.state_path, readonly=True)
+                try:
+                    self.go(today=TODAY + timedelta(days=day), dry_run=True, store=dry_store)
+                finally:
+                    dry_store.close()
                 self.assertEqual(len(self.fake.posts), before, (seed, day))
             self.go(today=TODAY + timedelta(days=day))
             expected += model.pass_for(people, numbers, due, day)

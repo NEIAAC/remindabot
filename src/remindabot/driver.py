@@ -116,13 +116,16 @@ class Client:
                 payload = resp.read(MAX_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as exc:
             detail = ""
-            if 300 <= exc.code < 400:
-                detail = f"redirected to {exc.headers.get('Location')!r}; check REMINDER_MM_URL"
-            else:
-                try:
-                    detail = exc.read(300).decode("utf-8", errors="replace")
-                except Exception:  # noqa: BLE001 - the body is only for the log line
-                    detail = "(error body unreadable)"
+            try:
+                if 300 <= exc.code < 400:
+                    detail = f"redirected to {exc.headers.get('Location')!r}; check REMINDER_MM_URL"
+                else:
+                    try:
+                        detail = exc.read(300).decode("utf-8", errors="replace")
+                    except Exception:  # noqa: BLE001 - the body is only for the log line
+                        detail = "(error body unreadable)"
+            finally:
+                exc.close()    # an error answer holds the connection open until it is closed
             # The detail goes into the log. A proxy's error page may repeat our headers: never the token.
             if len(self.token) >= 8:
                 detail = detail.replace(self.token, "***")

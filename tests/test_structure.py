@@ -23,6 +23,7 @@ from remindabot.bot import Bot, heartbeat
 from remindabot.commands import HANDLER_MODULES, SPEC_BY_TRIGGER, SPECS, command, registry
 from remindabot.config import Config
 from remindabot.overrides import Overrides
+from remindabot.store import Store
 
 from . import test_integration as ti
 from .test_commands import CommandsBase
@@ -159,6 +160,52 @@ class BotLifecycle(unittest.TestCase):
         for a, b in zip(first, second):
             self.assertIsNot(a, b)
         self.assertIsNot(first[0], bot.driver)               # not the daemon's, whose caches belong to one pass
+
+    def count_state_files(self):
+        """Patch Store so that every connection opened and every one closed is counted. CPython closes a
+        forgotten SQLite connection by itself (Python 3.13 and newer even warn about it), which would
+        hide a leak, so the count is the check."""
+        count = {"opened": 0, "closed": 0}
+        init, close = Store.__init__, Store.close
+
+        def counting_init(store, *args, **kwargs):
+            init(store, *args, **kwargs)
+            count["opened"] += store.db is not None
+
+        def counting_close(store):
+            count["closed"] += store.db is not None
+            close(store)
+        patches = (mock.patch.object(Store, "__init__", counting_init), mock.patch.object(Store, "close", counting_close))
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        return count
+
+    def test_every_action_lets_go_of_the_state_file_when_it_ends(self):
+        cfg = self.config()
+        Store(cfg.state_file).close()                                  # a state file that exists
+        bot = Bot(cfg)
+        bot.driver, bot.boards = mock.Mock(), mock.Mock()
+        bot.driver.me.return_value = {"username": "remindabot"}
+        bot.driver.my_teams.return_value = [{"name": "nei"}]
+        summary = mock.Mock(failed=0, **{"line.return_value": "summary"})
+        count = self.count_state_files()
+        with mock.patch.object(bot_mod, "run_once", return_value=summary), \
+                mock.patch.object(bot_mod, "register_commands", return_value=([], True)), \
+                mock.patch.object(bot_mod, "unregister_commands", return_value=([], True)), \
+                mock.patch.object(bot_mod, "serve"):
+            actions = {"check": bot.check, "once": bot.once, "once --dry-run": lambda: bot.once(dry_run=True),
+                       "join-boards": lambda: bot.once(join_only=True),
+                       "register-commands": lambda: bot.register_commands("admin-token"),
+                       "unregister-commands": lambda: bot.register_commands("admin-token", remove=True),
+                       "run (the daemon)": bot.run}
+            for name, action in actions.items():
+                with self.subTest(action=name):
+                    before = dict(count)
+                    self.assertEqual(action(), 0)
+                    opened, closed = count["opened"] - before["opened"], count["closed"] - before["closed"]
+                    self.assertGreater(opened, 0, "the action never opened the state file")
+                    self.assertEqual(closed, opened, "a connection to the state file was left open")
 
     def test_the_heartbeat_is_written_and_a_failure_to_write_it_is_harmless(self):
         cfg = self.config()

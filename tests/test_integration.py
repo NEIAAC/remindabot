@@ -67,8 +67,22 @@ class Base(unittest.TestCase):
         return Store(self.state_path, **kw)
 
     def go(self, *, store=None, today=TODAY, **kw):
+        """One pass. A store the test passes in stays open (it may be reused); one made here is closed."""
+        own = store is None
         store = store or self.store()
-        return run_once(self.cfg, self.mm, self.boards, store, self.template, today, **kw)
+        try:
+            return run_once(self.cfg, self.mm, self.boards, store, self.template, today, **kw)
+        finally:
+            if own:
+                store.close()
+
+    def dry_run(self):
+        """A dry run, with the state file opened read-only the way --dry-run opens it."""
+        store = Store(self.state_path, readonly=True)
+        try:
+            return self.go(dry_run=True, store=store)
+        finally:
+            store.close()
 
     def posted_to(self) -> list[str]:
         return sorted(p["user_id"] for p in self.fake.posts)
@@ -103,18 +117,18 @@ class Basics(Base):
     def test_dry_run_changes_nothing_and_respects_existing_state(self):
         self.simple_board(member=True)
         self.fake.add_card("b1", "c1", "A", due_ms=in_days(5), notifyees=[U1], remind=12)
-        s = self.go(dry_run=True, store=Store(self.state_path, readonly=True))
+        s = self.dry_run()
         self.assertEqual((s.sent, len(self.fake.posts)), (1, 0))
         self.assertFalse(self.state_path.exists())         # dry-run creates no state
         self.go()                                           # real run
-        s = self.go(dry_run=True, store=Store(self.state_path, readonly=True))
+        s = self.dry_run()
         self.assertEqual((s.sent, s.already_sent), (0, 1))  # dry-run now knows it was already sent
         self.assertEqual(len(self.fake.posts), 1)
 
     def test_dry_run_never_joins_boards(self):
         self.simple_board()                                  # open board, bot not a member yet
         self.fake.add_card("b1", "c1", "A", due_ms=in_days(5), notifyees=[U1], remind=12)
-        s = self.go(dry_run=True, store=Store(self.state_path, readonly=True))
+        s = self.dry_run()
         self.assertNotIn("b1", self.fake.members)
         self.assertEqual((s.boards_unreadable, s.sent, s.boards_joined), (["Posts"], 0, 0))
         self.assertFalse(self.state_path.exists())
@@ -406,6 +420,8 @@ class StateSafety(Base):
 
     def test_only_one_of_two_stores_can_claim(self):
         a, b = self.store(), self.store()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
         self.assertEqual(a.claim("c", "u", "2026-10-20", 7), "new")
         self.assertIsNone(b.claim("c", "u", "2026-10-20", 7))
         a.confirm("c", "u", "2026-10-20", 7)
@@ -420,8 +436,11 @@ class StateSafety(Base):
         def worker():
             try:
                 store = Store(self.state_path)
-                mm = Driver(self.url, BOT_TOKEN, timeout=10)
-                run_once(self.cfg, mm, self.boards, store, self.template, TODAY)
+                try:
+                    mm = Driver(self.url, BOT_TOKEN, timeout=10)
+                    run_once(self.cfg, mm, self.boards, store, self.template, TODAY)
+                finally:
+                    store.close()
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
 
@@ -451,6 +470,7 @@ class StateSafety(Base):
         for i in range(5):
             self.fake.add_card("b1", f"c{i}", f"card {i}", due_ms=in_days(5), notifyees=[U1], remind=12)
         store = self.store()
+        self.addCleanup(store.close)
         with mock.patch.object(Store, "confirm", side_effect=sqlite3.OperationalError("disk full")):
             with self.assertRaises(StateError):
                 run_once(self.cfg, self.mm, self.boards, store, self.template, TODAY)
@@ -533,10 +553,15 @@ class Serve(Base):
             calls["n"] += 1
             return real(*args, **kwargs)
 
+        own = store is None
         store = store or self.store(clock=lambda: clock.utc.timestamp())
-        with mock.patch.object(scheduler, "run_once", counting):
-            scheduler.serve(cfg or self.cfg, self.mm, self.boards, store,
-                           now_fn=clock.now, sleep_fn=clock.sleep, max_iterations=minutes)
+        try:
+            with mock.patch.object(scheduler, "run_once", counting):
+                scheduler.serve(cfg or self.cfg, self.mm, self.boards, store,
+                               now_fn=clock.now, sleep_fn=clock.sleep, max_iterations=minutes)
+        finally:
+            if own:
+                store.close()
         return calls["n"], clock
 
     def test_one_pass_per_day_at_send_time(self):
@@ -554,8 +579,9 @@ class Serve(Base):
         self.assertEqual(passes, 0)
         self.assertEqual(self.fake.posts, [])
         # the same card is sent by a pass someone asks for (--once / /remind_send), as always
-        self.assertEqual(run_once(cfg, self.mm, self.boards, self.store(), self.template,
-                                  date(2026, 12, 10)).sent, 1)
+        store = self.store()
+        self.addCleanup(store.close)
+        self.assertEqual(run_once(cfg, self.mm, self.boards, store, self.template, date(2026, 12, 10)).sent, 1)
 
     def test_catches_up_after_a_restart_later_in_the_day(self):
         passes, _ = self.serve(datetime(2026, 12, 10, 15, 30, tzinfo=LISBON), minutes=5)
@@ -563,7 +589,7 @@ class Serve(Base):
 
     def test_a_restart_after_the_run_does_not_run_again(self):
         self.serve(datetime(2026, 12, 10, 9, 0, tzinfo=LISBON), minutes=5)
-        passes, _ = self.serve(datetime(2026, 12, 10, 11, 0, tzinfo=LISBON), minutes=60, store=self.store())
+        passes, _ = self.serve(datetime(2026, 12, 10, 11, 0, tzinfo=LISBON), minutes=60)
         self.assertEqual(passes, 0)
 
     def test_with_the_shipped_defaults_the_pass_runs_every_day_at_14_00_weekends_included(self):
@@ -577,6 +603,7 @@ class Serve(Base):
             return real(*args, **kwargs)
 
         store = self.store(clock=lambda: clock.utc.timestamp())
+        self.addCleanup(store.close)
         with mock.patch.object(scheduler, "run_once", recording):       # Friday 12:00 -> Monday 15:00
             scheduler.serve(cfg, self.mm, self.boards, store, now_fn=clock.now, sleep_fn=clock.sleep,
                             max_iterations=75 * 60)
@@ -674,7 +701,7 @@ class ReviewFixes(Base):
         self.simple_board(member=True)
         self.fake.add_card("b1", "c1", "A", due_ms=in_days(5), notifyees=[U1, U2], remind=12)
         # a dry-run looks everyone up (and caches them in this client) without sending anything
-        self.go(dry_run=True, store=Store(self.state_path, readonly=True))
+        self.dry_run()
         self.assertEqual(self.fake.posts, [])
         self.fake.users[U2]["delete_at"] = 999              # deactivated afterwards; the client is the same object
         self.go()
@@ -751,6 +778,7 @@ class ReviewFixesServe(Serve):
     def test_a_claim_held_by_another_process_is_retried_not_forgotten(self):
         start = datetime(2026, 12, 10, 9, 0, tzinfo=LISBON)
         other = Store(self.state_path, clock=lambda: start.timestamp())
+        self.addCleanup(other.close)
         self.assertEqual(other.claim(self.fake.cards["b1"][0]["id"], U1, "2026-12-20", 12), "new")
         passes, _ = self.serve(start, minutes=30)
         self.assertEqual(len(self.fake.posts), 1)           # not lost: sent once the other claim went stale
@@ -767,8 +795,10 @@ class ReviewFixesServe(Serve):
                 raise ApiError(0, "server unreachable")
             return real(*args, **kwargs)
 
+        store = self.store(clock=lambda: clock.utc.timestamp())
+        self.addCleanup(store.close)
         with mock.patch.object(scheduler, "run_once", slow_then_ok), self.assertLogs("reminder", level="ERROR"):
-            scheduler.serve(self.cfg, self.mm, self.boards, self.store(clock=lambda: clock.utc.timestamp()),
+            scheduler.serve(self.cfg, self.mm, self.boards, store,
                            now_fn=clock.now, sleep_fn=clock.sleep, max_iterations=60)
         self.assertEqual(len(starts), 2)
         ended = starts[0] + timedelta(minutes=25)
@@ -964,7 +994,7 @@ class MultipleReminders(Base):
         self.simple_board(member=True)
         self.fake.add_card("b1", "c1", "A", due_ms=in_days(2), notifyees=[U1], remind="7;3;1")
         with self.assertLogs("reminder", level="INFO") as logs:
-            self.go(dry_run=True, store=Store(self.state_path, readonly=True))
+            self.dry_run()
         self.assertTrue(any("3-days-before" in m for m in logs.output), logs.output)
         self.assertEqual(self.fake.posts, [])
 

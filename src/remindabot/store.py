@@ -81,15 +81,20 @@ class Store:
                 # change what SQLite opens.
                 db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10,
                                      isolation_level=None)
-                has_table = db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reminders'").fetchone()
-                if has_table:
-                    self.db = db
-                    columns = [row[1] for row in db.execute("PRAGMA table_info(reminders)")]
-                    if "days" not in columns:
-                        self._days = "0"
-                else:
-                    db.close()   # a file without our table is the same as no history
+                try:
+                    has_table = db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reminders'").fetchone()
+                    if has_table:
+                        self.db = db
+                        columns = [row[1] for row in db.execute("PRAGMA table_info(reminders)")]
+                        if "days" not in columns:
+                            self._days = "0"
+                    else:
+                        db.close()   # a file without our table is the same as no history
+                except BaseException:
+                    db.close()       # a damaged file: do not keep it open behind the error
+                    self.db = None
+                    raise
             return
 
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,13 +105,17 @@ class Store:
         # isolation_level=None = autocommit; claim() opens its transaction explicitly.
         self.db = sqlite3.connect(path, timeout=10, isolation_level=None)
         try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass   # a file owned by somebody else (a bind mount): not ours to change
-        self.db.execute(_CREATE_REMINDERS)
-        self._upgrade_from_v1()
-        self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        self.db.execute(_CREATE_HISTORY)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass   # a file owned by somebody else (a bind mount): not ours to change
+            self.db.execute(_CREATE_REMINDERS)
+            self._upgrade_from_v1()
+            self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            self.db.execute(_CREATE_HISTORY)
+        except BaseException:
+            self.close()     # a damaged file: do not keep it open behind the error
+            raise
 
     def _upgrade_from_v1(self) -> None:
         """Rebuild an old-format table (no `days` column) in place, keeping what was sent."""

@@ -393,9 +393,16 @@ class Templates(unittest.TestCase):
 class StoreTests(unittest.TestCase):
     """The state is keyed by (card, person, due date, stage). `7` below is the "7 days before" stage."""
 
+    def open(self, path, **kwargs) -> Store:
+        """A store that is closed when the test ends (a forgotten connection is only closed by the garbage
+        collector, and Python 3.13 and newer warn about it)."""
+        store = Store(path, **kwargs)
+        self.addCleanup(store.close)
+        return store
+
     def test_lifecycle_new_sent_and_a_changed_due_date(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             self.assertEqual(store.status("c", "u", "2026-10-25", 7), "none")
             self.assertEqual(store.claim("c", "u", "2026-10-25", 7), NEW)
             self.assertEqual(store.status("c", "u", "2026-10-25", 7), "pending")
@@ -413,7 +420,7 @@ class StoreTests(unittest.TestCase):
 
     def test_each_stage_is_its_own_reminder(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             store.claim("c", "u", "2026-10-25", 7)
             store.confirm("c", "u", "2026-10-25", 7)
             self.assertEqual(store.status("c", "u", "2026-10-25", 3), "none")   # the smaller stage is still due
@@ -424,7 +431,7 @@ class StoreTests(unittest.TestCase):
     def test_a_smaller_stage_already_sent_silences_the_bigger_ones(self):
         """Told "3 days left" -> never "7 days" afterwards, even if somebody edits the list."""
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             store.claim("c", "u", "2026-10-25", 3)
             store.confirm("c", "u", "2026-10-25", 3)
             self.assertEqual(store.status("c", "u", "2026-10-25", 7), "sent")
@@ -435,7 +442,7 @@ class StoreTests(unittest.TestCase):
 
     def test_a_recent_claim_on_a_smaller_stage_counts_as_in_progress(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             store.claim("c", "u", "2026-10-25", 3)
             self.assertEqual(store.status("c", "u", "2026-10-25", 7), "pending")
             self.assertEqual(store.status("c", "u", "2026-10-25", 1), "none")
@@ -443,7 +450,7 @@ class StoreTests(unittest.TestCase):
     def test_orphaned_claim_goes_stale_and_can_be_taken_over(self):
         with tempfile.TemporaryDirectory() as d:
             now = [1000.0]
-            store = Store(Path(d) / "s.sqlite", clock=lambda: now[0], stale_after=300)
+            store = self.open(Path(d) / "s.sqlite", clock=lambda: now[0], stale_after=300)
             self.assertEqual(store.claim("c", "u", "2026-10-25", 7), NEW)
             now[0] += 299
             self.assertEqual(store.status("c", "u", "2026-10-25", 7), "pending")
@@ -455,7 +462,7 @@ class StoreTests(unittest.TestCase):
 
     def test_release_never_removes_a_sent_record(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             store.claim("c", "u", "2026-10-25", 7)
             store.confirm("c", "u", "2026-10-25", 7)
             store.release("c", "u", "2026-10-25", 7)
@@ -464,7 +471,7 @@ class StoreTests(unittest.TestCase):
     def test_sent_since_counts_per_day_and_per_person(self):
         with tempfile.TemporaryDirectory() as d:
             now = [10_000.0]
-            store = Store(Path(d) / "s.sqlite", clock=lambda: now[0])
+            store = self.open(Path(d) / "s.sqlite", clock=lambda: now[0])
             for card, user in (("c1", "u1"), ("c2", "u1"), ("c3", "u2")):
                 store.claim(card, user, "2026-10-25", 7)
                 store.confirm(card, user, "2026-10-25", 7)
@@ -476,7 +483,7 @@ class StoreTests(unittest.TestCase):
     def test_readonly_store_never_creates_or_changes_anything(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "missing.sqlite"
-            ro = Store(path, readonly=True)
+            ro = self.open(path, readonly=True)
             self.assertEqual(ro.status("c", "u", "2026-10-25", 7), "none")
             self.assertEqual(ro.sent_since(0), 0)
             self.assertIsNone(ro.last_run())
@@ -486,7 +493,7 @@ class StoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "empty.sqlite"
             sqlite3.connect(path).close()                                # exists, but is not ours
-            ro = Store(path, readonly=True)
+            ro = self.open(path, readonly=True)
             self.assertEqual(ro.status("c", "u", "2026-10-25", 7), "none")
 
     def test_readonly_path_with_uri_special_characters_is_not_misread(self):
@@ -494,15 +501,15 @@ class StoreTests(unittest.TestCase):
             odd = Path(d) / "a#b?c%d"
             odd.mkdir()
             path = odd / "state.sqlite"
-            Store(path).confirm("c", "u", "x", 7)                        # create a real file there
-            Store(path).claim("c", "u", "2026-10-25", 7)
-            ro = Store(path, readonly=True)
+            self.open(path).confirm("c", "u", "x", 7)                        # create a real file there
+            self.open(path).claim("c", "u", "2026-10-25", 7)
+            ro = self.open(path, readonly=True)
             self.assertEqual(ro.status("c", "u", "2026-10-25", 7), "pending")
             self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["a#b?c%d"])  # no stray file next to it
 
     def test_prune_forgets_only_old_entries(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             for due in ("2020-01-01", "2999-01-01"):
                 store.claim("c", "u", due, 7)
                 store.confirm("c", "u", due, 7)
@@ -514,20 +521,20 @@ class StoreTests(unittest.TestCase):
     def test_meta_values_round_trip_and_read_only_stores_read_them(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "s.sqlite"
-            store = Store(path)
+            store = self.open(path)
             self.assertIsNone(store.get_meta("k"))
             store.set_meta("k", "v1")
             store.set_meta("k", "v2")
             self.assertEqual(store.get_meta("k"), "v2")
-            self.assertEqual(Store(path, readonly=True).get_meta("k"), "v2")
+            self.assertEqual(self.open(path, readonly=True).get_meta("k"), "v2")
             store.delete_meta("k")
             self.assertIsNone(store.get_meta("k"))
-            self.assertIsNone(Store(Path(d) / "missing.sqlite", readonly=True).get_meta("k"))
+            self.assertIsNone(self.open(Path(d) / "missing.sqlite", readonly=True).get_meta("k"))
 
     def test_history_is_newest_first_limited_and_filterable_by_time(self):
         now = [1000.0]
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite", clock=lambda: now[0])
+            store = self.open(Path(d) / "s.sqlite", clock=lambda: now[0])
             for i, title in enumerate(("A", "B", "C")):
                 now[0] = 1000.0 + i * 100
                 store.record_history(card_id=f"c{i}", card_title=title, board_title="Posts", user_id="u", username="alice",
@@ -535,19 +542,19 @@ class StoreTests(unittest.TestCase):
             self.assertEqual([h["card_title"] for h in store.recent_history(10)], ["C", "B", "A"])
             self.assertEqual([h["card_title"] for h in store.recent_history(2)], ["C", "B"])
             self.assertEqual([h["card_title"] for h in store.recent_history(10, since=1100)], ["C", "B"])
-            self.assertEqual(Store(Path(d) / "s.sqlite", readonly=True).recent_history(1)[0]["username"], "alice")
+            self.assertEqual(self.open(Path(d) / "s.sqlite", readonly=True).recent_history(1)[0]["username"], "alice")
 
     def test_history_on_a_file_from_before_it_existed(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "s.sqlite"
             self.make_v1_file(path)
-            self.assertEqual(Store(path, readonly=True).recent_history(), [])      # no history table, no error
-            self.assertEqual(Store(path, readonly=True).sent_since(0), 1)
+            self.assertEqual(self.open(path, readonly=True).recent_history(), [])      # no history table, no error
+            self.assertEqual(self.open(path, readonly=True).sent_since(0), 1)
 
     def test_forget_reopens_a_stage_but_the_message_still_counts_for_the_caps(self):
         now = [5000.0]
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite", clock=lambda: now[0])
+            store = self.open(Path(d) / "s.sqlite", clock=lambda: now[0])
             self.assertEqual(store.claim("c", "u", "2026-10-25", 7), NEW)
             store.confirm("c", "u", "2026-10-25", 7)
             store.record_history(card_id="c", card_title="T", board_title="B", user_id="u", username="a",
@@ -567,7 +574,7 @@ class StoreTests(unittest.TestCase):
 
     def test_forget_removes_smaller_stages_too_because_they_are_what_silences_a_bigger_one(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             store.db.execute("INSERT INTO reminders VALUES ('c','u','2026-10-25',3,'sent',1.0)")
             store.db.execute("INSERT INTO reminders VALUES ('c','u','2026-10-25',7,'sent',1.0)")
             self.assertEqual(store.forget("c", "u", "2026-10-25", 7), 2)
@@ -576,7 +583,7 @@ class StoreTests(unittest.TestCase):
     def test_prune_forgets_old_history_too(self):
         now = [10 ** 9]
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite", clock=lambda: now[0])
+            store = self.open(Path(d) / "s.sqlite", clock=lambda: now[0])
             store.record_history(card_id="c", card_title="T", board_title="B", user_id="u", username="a",
                                  due_date="2026-10-25", days=7)
             now[0] += 401 * 86400
@@ -585,7 +592,7 @@ class StoreTests(unittest.TestCase):
 
     def test_close_releases_the_file(self):
         with tempfile.TemporaryDirectory() as d:
-            store = Store(Path(d) / "s.sqlite")
+            store = self.open(Path(d) / "s.sqlite")
             store.close()
             store.close()                                           # harmless twice
             self.assertEqual(store.sent_since(0), 0)
@@ -607,24 +614,26 @@ class StoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "s.sqlite"
             self.make_v1_file(path)
-            store = Store(path)
+            store = self.open(path)
             for stage in (30, 7, 1):   # a reminder sent by the old version silences every stage of that date
                 self.assertEqual(store.status("c", "u", "2026-10-25", stage), "sent", stage)
                 self.assertIsNone(store.claim("c", "u", "2026-10-25", stage))
             self.assertEqual(store.status("c", "u", "2026-11-02", 7), "none")
             self.assertEqual(store.last_run(), "2026-10-13")
             self.assertEqual(store.sent_since(0), 1)
-            Store(path)                                                  # opening again changes nothing
+            self.open(path)                                                  # opening again changes nothing
             self.assertEqual(store.status("c", "u", "2026-10-25", 7), "sent")
 
     def test_old_state_file_can_be_read_without_upgrading_it(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "s.sqlite"
             self.make_v1_file(path)
-            ro = Store(path, readonly=True)                              # what --dry-run does
+            ro = self.open(path, readonly=True)                              # what --dry-run does
             self.assertEqual(ro.status("c", "u", "2026-10-25", 7), "sent")
             self.assertEqual(ro.status("c", "u", "2026-11-02", 7), "none")
-            columns = [r[1] for r in sqlite3.connect(path).execute("PRAGMA table_info(reminders)")]
+            db = sqlite3.connect(path)
+            columns = [r[1] for r in db.execute("PRAGMA table_info(reminders)")]
+            db.close()
             self.assertNotIn("days", columns)                            # still untouched
 
 
@@ -636,6 +645,7 @@ class SettingsTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.now = [1_000_000.0]
         self.store = Store(Path(self.tmp.name) / "s.sqlite", clock=lambda: self.now[0])
+        self.addCleanup(self.store.close)
         self.settings = Overrides(self.store)
         message = Path(self.tmp.name) / "message.txt"
         message.write_text("cabeçalho\n" + render.CUT_MARKER + "\nOlá $responsible_name\n", encoding="utf-8")
@@ -739,7 +749,9 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(self.settings.verify_state(state, "setmessage", "u1"))      # expired
 
     def test_the_signing_secret_is_per_installation(self):
-        other = Overrides(Store(Path(self.tmp.name) / "other.sqlite", clock=lambda: self.now[0]))
+        other_store = Store(Path(self.tmp.name) / "other.sqlite", clock=lambda: self.now[0])
+        self.addCleanup(other_store.close)
+        other = Overrides(other_store)
         state = self.settings.sign_state("setmessage", "u1")
         self.assertFalse(other.verify_state(state, "setmessage", "u1"))
 
@@ -753,7 +765,9 @@ class SettingsTests(unittest.TestCase):
 
     def test_a_read_only_store_can_be_read_but_not_written(self):
         self.settings.set_send_at("10:00", "root")
-        ro = Overrides(Store(Path(self.tmp.name) / "s.sqlite", readonly=True))
+        ro_store = Store(Path(self.tmp.name) / "s.sqlite", readonly=True)
+        self.addCleanup(ro_store.close)
+        ro = Overrides(ro_store)
         self.assertEqual(ro.effective(self.cfg).send_at.hour, 10)
         with self.assertRaises(AssertionError):
             ro.pause("root")

@@ -52,7 +52,7 @@ class Scale(Quiet):
         self.cfg = self.make_cfg(REMINDER_MAX_MESSAGES_PER_DAY="5000", REMINDER_MAX_MESSAGES_PER_USER_PER_DAY="500")
         start = len(self.fake.requests)
         started = time.time()
-        summary = self.go(store=self.store())
+        summary = self.go()
         elapsed = time.time() - started
         requests = self.fake.requests[start:]
 
@@ -78,13 +78,13 @@ class Scale(Quiet):
         self.simple_board("b1", member=True)
         for n in range(500):
             self.fake.add_card("b1", f"c{n}", f"Card {n}", due_ms=ti.in_days(1), notifyees=people, remind="1")
-        summary = self.go(store=self.store())                         # the default caps: 100 a day, 20 a person
+        summary = self.go()                         # the default caps: 100 a day, 20 a person
         per_person = collections.Counter(p["user_id"] for p in self.fake.posts)
         self.assertLessEqual(len(self.fake.posts), 100)
         self.assertLessEqual(max(per_person.values()), 20)
         self.assertGreater(summary.capped, 0)
         before = len(self.fake.posts)
-        self.go(store=self.store())                                    # a second pass the same day sends nothing more
+        self.go()                                    # a second pass the same day sends nothing more
         self.assertEqual(len(self.fake.posts), before)
 
 
@@ -102,6 +102,7 @@ class Outage(Quiet):
             return original(handler, method, body)
         self.fake._dispatch = spy
         store = self.store(clock=lambda: clock.utc.timestamp())
+        self.addCleanup(store.close)
         scheduler.serve(self.cfg, self.mm, self.boards, store, now_fn=clock.now, sleep_fn=clock.sleep,
                         max_iterations=3 * 24 * 60)
         moments = sorted(set(seen_at))                                 # one moment = one pass (retries share it)

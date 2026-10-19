@@ -69,6 +69,7 @@ class Bot:
     def run(self) -> int:
         """Run until stopped (SIGTERM): answer chat commands, and run the daily pass on time."""
         cfg = self.cfg
+        store = None
         try:
             store = self.open_store()
             effective = Overrides(store).effective(cfg)
@@ -76,6 +77,8 @@ class Bot:
             log.error("cannot open the state file %s: %s. Nothing was changed; restore it from a backup, or "
                       "move it away to start afresh (everyone still inside a window is then reminded once more).",
                       cfg.state_file, exc)
+            if store is not None:
+                store.close()
             return 1
         log.info("started: daily run %s, template %s",
                  f"at {effective.send_at.strftime('%H:%M')} {cfg.tz}" if cfg.daily_pass
@@ -88,6 +91,7 @@ class Bot:
             if server is not None:
                 server.shutdown()          # stop answering ...
                 server.server_close()      # ... and let go of the port
+            store.close()                  # the one connection the daemon kept for its whole life
         return 0
 
     def _start_webhook_server(self):
@@ -119,18 +123,24 @@ class Bot:
             return 1
         log.info("OK: logged in as @%s, member of %d team(s): %s", me["username"], len(teams),
                  ", ".join(t["name"] for t in teams) or "-")
+        store = None
         try:
-            overrides = Overrides(Store(cfg.state_file, readonly=True))
-            effective = overrides.effective(cfg)
-            paused, tokens = overrides.paused(), overrides.command_tokens()
-        except (sqlite3.Error, OSError) as exc:
-            log.error("cannot read the state file %s: %s", cfg.state_file, exc)
-            return 1
-        try:
-            _, source = overrides.template(cfg)
-        except render.TemplateError as exc:
-            log.error("message template problem: %s", exc)
-            return 2
+            try:
+                store = Store(cfg.state_file, readonly=True)
+                overrides = Overrides(store)
+                effective = overrides.effective(cfg)
+                paused, tokens = overrides.paused(), overrides.command_tokens()
+            except (sqlite3.Error, OSError) as exc:
+                log.error("cannot read the state file %s: %s", cfg.state_file, exc)
+                return 1
+            try:
+                _, source = overrides.template(cfg)
+            except render.TemplateError as exc:
+                log.error("message template problem: %s", exc)
+                return 2
+        finally:
+            if store is not None:
+                store.close()
         log.info("message OK (%s), timezone %s, daily run %s%s", source, cfg.tz,
                  f"at {effective.send_at.strftime('%H:%M')}" if cfg.daily_pass else "OFF (REMINDER_DAILY_PASS=false)",
                  " [PAUSED]" if paused else "")
@@ -144,6 +154,7 @@ class Bot:
     def once(self, *, dry_run: bool = False, join_only: bool = False) -> int:
         """A single pass now. In a dry run the state file is opened read-only (it is never created)."""
         cfg = self.cfg
+        store = None
         try:
             store = Store(cfg.state_file, readonly=dry_run)
             overrides = Overrides(store)
@@ -160,18 +171,26 @@ class Bot:
         except (ApiError, StateError, OSError, render.TemplateError) as exc:
             log.error("run failed: %s", exc)
             return 1
+        finally:
+            if store is not None:
+                store.close()
         log.info("%s", summary.line())
         return 1 if summary.failed else 0
 
     def register_commands(self, admin_token: str, *, remove: bool = False) -> int:
         """Create (or with `remove`, delete) the slash commands in every team. The administrator's
         token is used for this one call; the bot never keeps it."""
+        store = None
         try:
             action = unregister_commands if remove else register_commands
-            report, ok = action(self.cfg, admin_token, Store(self.cfg.state_file))
+            store = Store(self.cfg.state_file)
+            report, ok = action(self.cfg, admin_token, store)
         except (ApiError, sqlite3.Error, OSError) as exc:
             log.error("could not register the commands: %s", exc)
             return 1
+        finally:
+            if store is not None:
+                store.close()
         for line in report:
             log.info("%s", line)
         if not ok:

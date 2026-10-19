@@ -110,7 +110,9 @@ class CheckImageScript(unittest.TestCase):
             self.assertEqual(second.returncode, 0, second.stderr)
             from remindabot.store import Store
             today = datetime.now(ZoneInfo("Europe/Lisbon")).date().isoformat()
-            self.assertEqual(Store(state, readonly=True).last_run(), today)
+            store = Store(state, readonly=True)
+            self.addCleanup(store.close)
+            self.assertEqual(store.last_run(), today)
 
     def test_it_runs_the_module_that_exists(self):
         text = (SCRIPTS / "check-image.sh").read_text(encoding="utf-8")

@@ -89,7 +89,9 @@ class CommandsBase(ti.Base):
                             f"{what}: a line right under a table becomes one of its rows: {below!r}")
 
     def settings(self) -> Overrides:
-        return Overrides(self.store())
+        store = self.store()
+        self.addCleanup(store.close)
+        return Overrides(store)
 
     def card_in_window(self, card_id="c1", title="Workshop", remind="7;3;1", due=5, notifyees=None, **extra):
         self.simple_board(member=True) if "b1" not in self.fake.cards else None
@@ -634,7 +636,8 @@ class HttpEndpoint(CommandsBase):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.status, json.loads(resp.read() or b"null")
         except urllib.error.HTTPError as exc:
-            return exc.code, json.loads(exc.read() or b"null")
+            with exc:                      # an error answer holds the connection open until it is closed
+                return exc.code, json.loads(exc.read() or b"null")
 
     def test_a_form_post_is_answered_as_mattermost_expects(self):
         data = urllib.parse.urlencode(self.form("remind_help")).encode()
@@ -659,6 +662,7 @@ class HttpEndpoint(CommandsBase):
         self.assertEqual(self.post("/nope", b"x")[0], 404)
         with self.assertRaises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(self.base + "/command", timeout=5)         # a GET is not a command
+        caught.exception.close()
         self.assertEqual(caught.exception.code, 404)
 
     def test_junk_is_refused_without_harm(self):
