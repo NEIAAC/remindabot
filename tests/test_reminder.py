@@ -730,7 +730,8 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(self.settings.verify_state(state, "setmessage", "u2"))
         self.assertFalse(self.settings.verify_state(state, "other", "u1"))
         expires, nonce, mac = state.split(".")
-        self.assertFalse(self.settings.verify_state(f"{expires}.{nonce}.{mac[:-1]}0", "setmessage", "u1"))
+        flipped = mac[:-1] + ("1" if mac[-1] == "0" else "0")        # always a different signature
+        self.assertFalse(self.settings.verify_state(f"{expires}.{nonce}.{flipped}", "setmessage", "u1"))
         self.assertFalse(self.settings.verify_state(f"{int(expires) + 99}.{nonce}.{mac}", "setmessage", "u1"))
         for junk in (None, 5, "", "a.b", "x.y.z", "1.2.3.4"):
             self.assertFalse(self.settings.verify_state(junk, "setmessage", "u1"), repr(junk))

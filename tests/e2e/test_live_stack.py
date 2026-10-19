@@ -192,7 +192,9 @@ class LiveStack(unittest.TestCase):
         if newest:
             message = newest[0]["message"]
             self.check(newest[0]["user_id"] == self.bot_id, "... and it is from the bot (Remindabot)")
-            self.check(message.startswith("Olá devadmin!"), "... addressed to devadmin by name", message[:120])
+            # devadmin has no nickname or full name, so the greeting is "@username" with an invisible
+            # zero-width space after the "@" (U+200B): it reads as a name but does not ping anybody
+            self.check(message.startswith("Olá @​devadmin!"), "... addressed to devadmin by name", message[:120])
             self.check(DEVADMIN_CARD in message, "... about the card that lists devadmin as a notifyee", message[:300])
             link = re.search(r"/boards/team/(\w+)/(\w+)/(\w+)/(\w+)\)", message)
             self.check(bool(link), "... with a full card link", message[-300:])
@@ -400,13 +402,14 @@ class LiveStack(unittest.TestCase):
         admin, bot, team = self.admin_token, self.bot_token, self.seed["team"]
         alice_id = self.seed["users"]["alice"]
 
-        # the bot's account is an ordinary member, never an administrator
+        # the bot's account is an ordinary member, never an administrator or any other special role
         status, account = s.call(f"/api/v4/users/{self.bot_id}", admin)
-        self.check(status == 200 and "system_admin" not in str(account.get("roles")),
-                   "the bot's account is not a system administrator", str(account)[:200])
-        # ... and its token cannot do what only an administrator can
+        self.check(status == 200 and set(str(account.get("roles")).split()) <= {"system_user"},
+                   "the bot's account has no role besides the plain member role", str(account)[:200])
+        # ... and its token cannot do what only an administrator can. Creating a team is NOT in this
+        # list on purpose: Mattermost lets every member do that by default (the server's choice, in
+        # System Console > Permissions), so the check would create a team on a stock server.
         for what, method, path, body in (
-                ("create a team", "POST", "/api/v4/teams", {"name": "botmade", "display_name": "x", "type": "O"}),
                 ("create a user", "POST", "/api/v4/users", {"email": "x@dev.local", "username": "botmade", "password": "Aa1-botmade-pw"}),
                 ("change somebody's roles", "PUT", f"/api/v4/users/{alice_id}/roles", {"roles": "system_user system_admin"}),
                 ("read the server configuration", "GET", "/api/v4/config", None),

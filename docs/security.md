@@ -21,10 +21,17 @@ slash commands only in the one-off `--register-commands`, with an administrator'
 not keep). Its account should be a plain *Member*; `scripts/make-bot-read-only.sh` reduces it to
 *Viewer* on the boards it joined.
 
+A Member can do what Mattermost lets every member do, and the bot's token can do the same. One
+example is **creating a team**: a stock Mattermost allows it to everyone (the dev stack too). The bot
+never does it, but if a leaked token worries you, take the permission to create teams away from *All
+Members* (System Console → User Management → Permissions → System Scheme). That also restricts your
+people, so it is a decision for your server and not something the bot needs.
+
 Proof: `tests/test_safety.py` (`WriteSurface`) records every request of a pass, of every chat command
 and of a week of the daily loop, and fails on anything outside that table; a dry run and the commands
 that only look must write nothing at all. `tests/e2e` (`test_08`) checks on the real server that the
-bot's token cannot create a team or a user, change a role or read the configuration.
+bot's account has no role beyond Member and that its token cannot create a user, change a role,
+read the configuration or create a command.
 
 ## Its secrets
 

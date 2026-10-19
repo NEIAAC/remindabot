@@ -192,6 +192,10 @@ docker compose down -v && docker compose up -d --build       # always start clea
 docker compose --profile test run --rm e2e                   # about 3 minutes; waits for the bot to be healthy
 ```
 
+Run it on the fresh stack **before** trying anything by hand. A `/remind_send` of your own, or
+anything else that makes the bot join a board, changes the numbers the test expects: step 2 then
+fails and steps 3 to 6 are skipped ("the stack was already used"). Look around afterwards.
+
 It checks: the dry run says exactly the expected messages and warnings and writes nothing; a real
 send reaches the right people with working card links (including devadmin's own direct message);
 a second run repeats nothing; `scripts/make-bot-read-only.sh` makes the bot a Viewer and a read-only
