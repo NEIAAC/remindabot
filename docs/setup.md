@@ -12,12 +12,20 @@ You need: Mattermost with the Boards plugin, Docker Compose, and system-admin ri
 
    ```yaml
      reminder:
-       build: https://github.com/NEIAAC/remindabot.git#main   # pin a release tag for reproducible builds
+       image: ghcr.io/neiaac/remindabot:1.0.0     # a published release; the version is what you run
        container_name: chat-reminder
        restart: unless-stopped
        depends_on:
          mattermost:
            condition: service_healthy
+       # the bot only reads /config and writes /data (a volume) and /tmp, and needs no extra rights
+       read_only: true
+       tmpfs:
+         - /tmp
+       cap_drop:
+         - ALL
+       security_opt:
+         - no-new-privileges:true
        environment:
          - TZ=${TZ}
          - REMINDER_TZ=${TZ}
@@ -32,12 +40,15 @@ You need: Mattermost with the Boards plugin, Docker Compose, and system-admin ri
      reminder:
    ```
 
-   Put `REMINDER_BOT_TOKEN=...` in your `.env` (which must be git-ignored).
+   Put `REMINDER_BOT_TOKEN=...` in your `.env` (which must be git-ignored). To update the bot later, change the
+   version in the `image:` line (releases are listed on the repository's Releases page) and run
+   `docker compose up -d`; to go back, put the old version back. To run your own copy of the code
+   instead, replace `image:` by `build: <path or git address of your fork>`.
 5. **Open boards** are joined by the bot automatically: it must be a board member to read cards.
    **Private boards** must have the bot added as a member by a board admin, otherwise they are
    skipped (the log says so).
 6. **Do not start it for real yet.** Follow
-   [Trying it safely](#trying-it-safely-before-going-live) first, then `docker compose up -d --build reminder`.
+   [Trying it safely](#trying-it-safely-before-going-live) first, then `docker compose up -d`.
 7. **Optional: the chat commands** (`/remind_status`, `/remind_send`, ...). Two small steps once the
    bot runs, described in [chat-commands.md](chat-commands.md#setting-it-up-once). In short: let Mattermost call the
    bot (`MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS=reminder` on the Mattermost service)
@@ -63,7 +74,7 @@ hold an admin token.
 
 ## Trying it safely before going live
 
-Three levels, from least to most effort. Do at least the first.
+Levels from least to most effort. Do at least the first.
 
 **1. Dry run on the real server (read-only).** Prints every message that *would* be sent, sends
 nothing, joins nothing, writes nothing:
@@ -97,3 +108,9 @@ data. `docker compose down -v` removes it all. See [development.md](development.
 **4. Try it on a copy of your real database.** `dev/sandbox` builds an isolated sandbox from a
 database dump: no network access at all, no real e-mails, passwords, sessions or names, and a
 check that refuses to start if the scrub failed. See [dev/sandbox/README.md](../dev/sandbox/README.md).
+
+**5. Practise the deployment itself.** `dev/rehearsal` runs your real production `docker-compose.yml`,
+unmodified, on a scrubbed copy of the production database, isolated from the internet. You type the
+deployment commands as you will on the server, and `rehearse.sh compare` shows everything they changed
+(and fails if a card or a board did). It also checks that the server can build the bot from the
+address in the compose file. See [dev/rehearsal/README.md](../dev/rehearsal/README.md).

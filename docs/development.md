@@ -42,6 +42,7 @@ Dockerfile             the bot's image
 compose.yaml           the dev stack
 dev/toolbox/           a small image with bash, curl, jq and Python: what the scripts and e2e tests run in
 dev/sandbox/           an isolated copy of a production database (see its README)
+dev/rehearsal/         the production compose file on such a copy, to practise the deployment (see its README)
 scripts/               shell helpers (below); scripts/lib/mm.sh is their shared HTTP helpers
 docs/                  this documentation
 pyproject.toml         package metadata (no dependencies); `pip install -e .` if you want `remindabot` on your PATH
@@ -233,7 +234,9 @@ small stand-in for the Mattermost and Boards API, so a change to them is tested 
 
 `dev/sandbox` restores a database dump into an isolated sandbox, anonymizes it, and lets you run the
 bot against your real boards without any possibility of contacting a real person: see
-[its README](../dev/sandbox/README.md). The Boards API facts below were verified on a throwaway
+[its README](../dev/sandbox/README.md). `dev/rehearsal` goes one step further: it runs the real
+production `docker-compose.yml` on such a copy so the deployment itself can be practised and its
+effects compared before and after ([its README](../dev/rehearsal/README.md)). The Boards API facts below were verified on a throwaway
 Mattermost built the same way: Mattermost Team Edition + Postgres, the Boards bundle uploaded from
 its GitHub release page (`PluginSettings.EnableUploads=true`).
 

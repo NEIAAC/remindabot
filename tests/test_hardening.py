@@ -433,7 +433,7 @@ class RepoHygiene(unittest.TestCase):
     ALLOWED_DOMAINS = re.compile(r"(\.invalid|\.local|\.test|(^|\.)example\.(com|org|net)|^x\.example)$")
     SECRET = re.compile(r"(?i)\b[\w-]*(token|secret|passw(?:or)?d|api[_-]?key)[\w-]*\s*[:=]\s*[\"']?([A-Za-z0-9+/=_\-]{16,})[\"']?")
     # values that are not secrets: paths of secret FILES, the documented dev passwords, and test fixtures
-    KNOWN = ("/secrets/", "/run/secrets/", "devadmin-password", "sandbox_only_password", "tok-remind_", "plain-user-token",
+    KNOWN = ("/secrets/", "/run/secrets/", "devadmin-password", "sandbox_only_password", "rehearsal_only_password", "tok-remind_", "plain-user-token",
              "REMINDER_", "mmuser_dev", "bot-token-xyz", "admin-token-abc", "shim-token", "from-a-file", "pw-from-restore",
              "correct-horse", "secret-bot", "secret-admin")
 

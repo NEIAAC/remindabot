@@ -1,0 +1,44 @@
+# Runs the tests and builds the image: on every pull request, on every push to main, and (as a
+# reusable workflow) before a release is published. It is also what checks a Dependabot pull request.
+#
+# The actions are pinned to a commit, as in NEIAAC/chat; the comment says which version it is, and
+# Dependabot keeps both up to date.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Lisbon               # what the dev/toolbox image sets, where the tests normally run
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # the version of the image's base (Dockerfile); a test keeps the two equal
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m unittest
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # builds only: nothing is published here
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false

@@ -18,5 +18,8 @@ __pycache__/
 # the production-copy sandbox: the bot's token, the admin's password (dev/sandbox)
 dev/sandbox/.sandbox-*
 
+# the deployment rehearsal's working copy: the production compose file, its .env, snapshots, the admin's password
+dev/rehearsal/work/
+
 # leftovers of the old tools/ directory (secrets of a throwaway stack): never commit them; delete the directory
 tools/

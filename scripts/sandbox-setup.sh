@@ -10,7 +10,9 @@
 # The bot's token is the ONLY thing written to stdout (restore.sh stores it); progress goes to stderr.
 #
 # Settings (environment): MM_URL (default http://mattermost:8065), SANDBOX_ADMIN_PASSWORD (required),
-# BOARDS_BUNDLE (the plugin .tar.gz, baked into the toolbox image).
+# BOARDS_BUNDLE (the plugin .tar.gz, baked into the toolbox image), CREATE_BOT (default "yes"; "no" =
+# stop after installing Boards and create no bot: dev/rehearsal does that, because there the person
+# practising the deployment creates the bot by hand, as they will in production).
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib/mm.sh
@@ -19,6 +21,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 MM_URL=${MM_URL:-http://mattermost:8065}
 BOARDS_BUNDLE=${BOARDS_BUNDLE:-/opt/boards.tar.gz}
 : "${SANDBOX_ADMIN_PASSWORD:?SANDBOX_ADMIN_PASSWORD is required}"
+CREATE_BOT=${CREATE_BOT:-yes}
 need curl jq od
 
 wait_for_mattermost 240
@@ -26,6 +29,10 @@ login sandboxadmin "$SANDBOX_ADMIN_PASSWORD" || die "cannot log in as sandboxadm
 step "logged in as sandboxadmin"
 
 install_boards "$BOARDS_BUNDLE"
+if [ "$CREATE_BOT" = no ]; then
+  step "Boards is installed; no bot was created (CREATE_BOT=no)"
+  exit 0
+fi
 
 BOT_ID=$(create_bot remindabot Remindabot "Due-date reminders for Mattermost Boards cards")
 BOT_TOKEN=$(new_token "$BOT_ID" sandbox)

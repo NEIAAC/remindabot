@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 COMPOSE_FILES = [ROOT / "compose.yaml", ROOT / "dev" / "sandbox" / "compose.yaml"]
 DOC_FILES = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", *sorted((ROOT / "docs").glob("*.md")),
-             ROOT / "dev" / "sandbox" / "README.md"]
+             ROOT / "dev" / "sandbox" / "README.md", ROOT / "dev" / "rehearsal" / "README.md"]
 HAVE_TOOLS = all(shutil.which(p) for p in ("bash", "curl", "jq"))
 
 
@@ -263,6 +263,23 @@ class SandboxSetup(unittest.TestCase):
             self.assertEqual(len(members), 2)                         # the bot joined both teams
             self.assertIn("remindabot", stub.state.users)
 
+    def test_with_create_bot_no_it_only_installs_boards(self):
+        with StubMattermost() as stub, tempfile.TemporaryDirectory() as tmp:
+            stub.state.users["sandboxadmin"] = {"id": "s" * 26, "username": "sandboxadmin", "password": "pw",
+                                                "roles": "system_admin system_user"}
+            stub.state.teams["one"] = {"id": "t" * 26, "name": "one"}
+            bundle = Path(tmp) / "boards.tar.gz"
+            bundle.write_bytes(b"x" * 100)
+            env = {**os.environ, "MM_URL": stub.url, "SANDBOX_ADMIN_PASSWORD": "pw", "BOARDS_BUNDLE": str(bundle),
+                   "CREATE_BOT": "no"}
+            done = subprocess.run(["bash", str(SCRIPTS / "sandbox-setup.sh")], env=env, capture_output=True,
+                                  text=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(done.stdout, "", "no token: no bot was made")
+            self.assertNotIn("remindabot", stub.state.users)
+            self.assertFalse([p for m, p in stub.state.calls if m == "POST" and p.endswith("/members")])
+            self.assertTrue([p for m, p in stub.state.calls if "plugins" in p], "Boards must still be installed")
+
     def test_a_wrong_password_stops_with_a_clear_message(self):
         with StubMattermost() as stub:
             stub.state.users["sandboxadmin"] = {"id": "s" * 26, "username": "sandboxadmin", "password": "pw",
@@ -399,8 +416,8 @@ class Documentation(unittest.TestCase):
     def test_every_path_the_documents_name_exists(self):
         names = set(re.findall(r"(?<![\w/.-])((?:scripts|dev|docs|src|tests|config)/[A-Za-z0-9_./-]*[A-Za-z0-9_])",
                                self.readme))
-        # files the stack creates when it runs (tokens, passwords) are not in a checkout
-        names = {n for n in names if not re.search(r"/\.(dev|sandbox)", n)}
+        # files the stack creates when it runs (tokens, passwords, the rehearsal's work/) are not in a checkout
+        names = {n for n in names if not re.search(r"/\.(dev|sandbox)|^dev/rehearsal/work", n)}
         self.assertTrue(names)
         for name in sorted(names):
             with self.subTest(path=name):

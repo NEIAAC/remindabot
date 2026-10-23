@@ -41,6 +41,19 @@ These are not style. Each has a test, and a pull request that breaks one will fa
 - **A change must never send a reminder twice**, or silently skip one. See
   [docs/how-it-works.md](docs/how-it-works.md) before touching `runner.py`, `logic.py` or `store.py`.
 
+## Releasing a version
+
+The server runs a published image, `ghcr.io/neiaac/remindabot:<version>`. A maintainer publishes one like this:
+
+1. Raise `version` in `pyproject.toml`, commit it and push (a pull request is fine).
+2. Tag that commit and push the tag: `git tag -a v1.0.1 -m "What changed" && git push origin v1.0.1`.
+
+The release workflow (`.github/workflows/release.yml`) then checks that the tag is the version in
+`pyproject.toml`, runs all the tests, and only then publishes the image (`1.0.1` and `1.0`; there is no
+`latest`, on purpose). Production changes by editing the version in its `image:` line, which
+Dependabot proposes in the infrastructure repository; going back is the same edit. A tag that was
+published is never moved: publish a new version instead.
+
 ## Questions, problems, ideas
 
 Open an issue on [NEIAAC/remindabot](https://github.com/NEIAAC/remindabot/issues). Write what you

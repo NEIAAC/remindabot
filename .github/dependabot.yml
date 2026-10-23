@@ -10,3 +10,8 @@ updates:
     directory: "/dev/toolbox"
     schedule:
       interval: "weekly"
+  # the pinned GitHub Actions of .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

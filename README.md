@@ -50,7 +50,7 @@ tests/            unit, fuzz and integration tests (no Docker); tests/e2e runs a
 config/           message.txt: the default message, copied into the image
 Dockerfile        the bot's image (compose.yaml and the production compose file build it)
 compose.yaml      the local dev stack: Mattermost + Boards + demo data + the bot
-dev/              what the dev stack and the sandbox need besides the bot (toolbox image, sandbox)
+dev/              what the dev stack needs besides the bot (toolbox image), the production-copy sandbox, the deployment rehearsal
 scripts/          shell helpers: check the image, make the bot read-only, seed the dev stack
 docs/             the documentation
 CONTRIBUTING.md   how to propose a change; the rules a change must keep

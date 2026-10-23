@@ -1,0 +1,45 @@
+# The ONLY thing that differs between the production docker-compose.yml and its rehearsal.
+#
+# rehearse.sh copies the real production file next to this one (it is never edited) and tells Docker
+# Compose to layer this file over it (COMPOSE_FILE in work/.env). What it changes, and why:
+#
+#   no route to the internet   the network is `internal`, so nothing in the copy can reach out, even
+#                              if a setting below were wrong
+#   nobody is contacted        e-mail and push notifications are off and there is no mail server
+#   no published port          an internal network cannot publish ports; `gate` (a tiny forwarder
+#                              that only copies bytes) makes the copy reachable from THIS machine
+#                              only, at http://127.0.0.1:8068
+#   mmctl --local              lets rehearse.sh create the local admin (the restored accounts have no
+#                              passwords left)
+#   quieter logs               the marketplace and security-alert checks are off (they would only
+#                              fail to reach the internet)
+#
+# Container names, volumes, healthchecks, the order of start-up and every other setting come from the
+# production file itself, so what you practise here is what production does. The README lists the
+# differences that remain.
+services:
+  mattermost:
+    ports: !reset []
+    environment:
+      - MM_SERVICESETTINGS_ENABLELOCALMODE=true
+      - MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
+      - MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS=false
+      - MM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER=
+      - MM_EMAILSETTINGS_SMTPSERVER=
+      - MM_SERVICESETTINGS_ENABLESECURITYFIXALERT=false
+      - MM_PLUGINSETTINGS_ENABLEMARKETPLACE=false
+      - MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE=false
+
+  gate:
+    image: alpine/socat
+    pull_policy: if_not_present
+    networks: [default, outside]
+    command: TCP-LISTEN:8065,fork,reuseaddr TCP:mattermost:8065
+    ports:
+      - "127.0.0.1:8068:8065"          # only this machine can reach the copy
+    depends_on: [mattermost]
+
+networks:
+  default:
+    internal: true                      # no route to the internet
+  outside: {}
