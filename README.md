@@ -5,7 +5,7 @@ message to the people you chose on the card, so they remember to fill in and con
 information of the post. You decide, per card, **who** is told and **on which days**
 (for example a week, three days and one day before).
 
-- Plain **Python 3.12, standard library only** (no packages to install, nothing to rot).
+- Plain **Python (3.12 or newer; the image runs 3.14), standard library only**: no packages to install, nothing to rot.
 - Runs as **one small Docker container** next to Mattermost, in the same `docker-compose.yml`.
 - **Never sends the same reminder twice**, even after crashes or restarts.
 - Never changes anything on your boards. It only reads cards and sends direct messages.
@@ -13,7 +13,8 @@ information of the post. You decide, per card, **who** is told and **on which da
   `/remind_setmessage`, `/remind_setsend` and more (see [docs/chat-commands.md](docs/chat-commands.md)).
 
 > Written for the NEI/AAC community's chat. Nothing in it is specific to us except the default
-> message wording and the Lisbon timezone; both are settings.
+> timezone (Lisbon), which is a setting. The wording of the message is a plain file, in English by
+> default; the bot adds no words of its own to it, so writing it in your language is editing that file.
 
 ## Try it in two commands
 
@@ -65,15 +66,14 @@ remind, e.g. `7;3;1`). Every morning the bot looks at all cards; on each listed 
 notifyee receives a message like this (the wording is yours to edit, see
 [Changing the message](docs/configuration.md#changing-the-message)):
 
-> Olá Ana! 👋
+> Hi Ana! 👋
 >
-> Este é um lembrete automático da equipa de Comunicação: a informação do cartão **Workshop de
-> Python** (quadro *Posts*) tem de estar preenchida e confirmada até **domingo, 25 de outubro de
-> 2026** (**faltam 12 dias**).
+> This is an automatic reminder: the information of the card **Python Workshop** (board *Posts*)
+> must be filled in and confirmed by **2026-10-25** (**12 days left**).
 >
-> Por favor, verifica se estão completos e corretos: a descrição do post; o local; a hora.
+> Please check that everything is complete and correct: the description; the place; the time.
 >
-> 👉 [Abrir o cartão](https://chat.example.com/boards/team/…)
+> 👉 [Open the card](https://chat.example.com/boards/team/…)
 
 ## How a card is handled
 
@@ -125,11 +125,11 @@ listed number that is still at least the number of days left**, and it is sent o
 | Today | Days left | What happens |
 | --- | --- | --- |
 | 17 Oct | 8 | Too early: nothing. |
-| 18 Oct | 7 | **Message** ("faltam 7 dias"). |
+| 18 Oct | 7 | **Message** ("7 days left"). |
 | 19 – 21 Oct | 6 – 4 | Nothing: the 7-day reminder was already sent. |
-| 22 Oct | 3 | **Message** ("faltam 3 dias"). |
+| 22 Oct | 3 | **Message** ("3 days left"). |
 | 23 Oct | 2 | Nothing. |
-| 24 Oct | 1 | **Message** ("falta 1 dia"). |
+| 24 Oct | 1 | **Message** ("1 days left": the number is the only thing the bot supplies, so there is no singular). |
 | 25 Oct | 0 | Nothing: the last reminder was yesterday. |
 | 26 Oct | – | Passed: nothing is sent anymore. |
 
@@ -140,7 +140,7 @@ Rules worth knowing:
   Someone added to `Notifyees` later gets the reminder that applies at that moment.
 - A card seen late is told once, not once per missed reminder: with `14;7;3;1` and a Due Date
   set when only 2 days are left, there is a single message (the "3 days" reminder, which says
-  "faltam 2 dias") and then the "1 day" one.
+  "2 days left") and then the "1 day" one.
 - Editing the list never repeats a message. Once somebody was told at "3 days", adding or removing
   bigger numbers sends nothing more; only a smaller reminder still to come is sent.
 - A card whose Due Date is set when a reminder is already due is reminded at the next daily run.

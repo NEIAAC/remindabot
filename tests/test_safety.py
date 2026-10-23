@@ -396,7 +396,7 @@ HOSTILE_TEXT = [
 class HostileDataInTheMessage(ti.Base):
     """Cards, boards and names are typed by anybody with edit rights; the message carries the BOT'S authority."""
 
-    LEGIT_LINK = re.compile(r"\[Abrir o cartão\]\(https://chat\.test/boards/[^)\s]*\)")
+    LEGIT_LINK = re.compile(r"\[Open the card\]\(https://chat\.test/boards/[^)\s]*\)")
 
     def message_for(self, title="Workshop", board="Posts", nickname="", other=""):
         self.fake.posts.clear()

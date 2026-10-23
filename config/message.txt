@@ -1,34 +1,39 @@
-ESTE FICHEIRO É O TEXTO DA MENSAGEM QUE O BOT ENVIA (mensagem privada, formato Markdown do Mattermost).
-Tudo o que está ACIMA da linha de corte abaixo é só um comentário para quem edita e nunca é enviado.
-Edita o texto por baixo da linha; as alterações são lidas na próxima execução diária (não é preciso reiniciar).
+THIS FILE IS THE TEXT OF THE MESSAGE THE BOT SENDS (a direct message, Mattermost Markdown format).
+Everything ABOVE the cut line below is only a comment for whoever edits it and is never sent.
+Edit the text below the line; changes are read at the next daily run (no restart needed).
 
-Variáveis disponíveis (escrever exatamente assim, com $ à frente; para um $ literal usa $$):
+The bot adds no words of its own to a message: every word is here, so writing the message in another
+language is just editing this file.
 
-  $responsible_name   nome de quem recebe a mensagem
-  $co_responsibles    as OUTRAS pessoas avisadas sobre o cartão (vazio se não houver)
-  $card_title         título do cartão
-  $board_title        nome do quadro
-  $due_date           data limite, ex.: 25/10/2026
-  $due_date_long      data limite por extenso, ex.: domingo, 25 de outubro de 2026
-  $days_left          dias que faltam, ex.: 12
-  $days_left_text     frase completa: "faltam 12 dias", "falta 1 dia" ou "é hoje"
-  $remind_before      o lembrete que originou esta mensagem, em dias (7 = o lembrete "7 dias antes")
-  $card_url           ligação direta para o cartão
+Available variables (write them exactly like this, with a $ in front; for a literal $ use $$):
 
-ATENÇÃO: se a variável for seguida de uma letra, número ou _ (por exemplo o _ do itálico em Markdown),
-escreve-a com chavetas: ${board_title}. Sem chavetas, "$board_title_" seria lido como outra variável.
+  $responsible_name   name of the person who receives the message
+  $co_responsibles    the OTHER people told about the card (empty if there are none)
+  $card_title         title of the card
+  $board_title        name of the board
+  $due_date           due date, e.g.: 2026-10-25
+  $due_year           year of the due date, e.g.: 2026
+  $due_month          month of the due date, two digits, e.g.: 10
+  $due_day            day of the due date, two digits, e.g.: 25
+                      (to write the date your way, e.g. 25/10/2026: $due_day/$due_month/$due_year)
+  $days_left          days left, e.g.: 12 (there is no singular: 1 reads "1 days left")
+  $remind_before      the reminder that triggered this message, in days (7 = the "7 days before" reminder)
+  $card_url           direct link to the card
 
-Se escreveres uma variável que não existe (ex.: $card_titulo), o bot recusa-se a enviar e escreve o erro nos logs.
+WARNING: if a variable is followed by a letter, a number or _ (for example the _ of Markdown italics),
+write it with braces: ${board_title}. Without braces, "$board_title_" would be read as another variable.
+
+If you write a variable that does not exist (e.g. $card_titel), the bot refuses to send and writes the error to the logs.
 -----8<-----
-Olá $responsible_name! :wave:
+Hi $responsible_name! :wave:
 
-Este é um lembrete automático da equipa de Comunicação: a informação do cartão **$card_title** (quadro _${board_title}_) tem de estar preenchida e confirmada até **$due_date_long** (**$days_left_text**).
+This is an automatic reminder: the information of the card **$card_title** (board _${board_title}_) must be filled in and confirmed by **$due_date** (**$days_left days left**).
 
-Por favor, verifica se estão completos e corretos:
-- a descrição do post;
-- o local;
-- a hora.
+Please check that everything is complete and correct:
+- the description;
+- the place;
+- the time.
 
-:point_right: [Abrir o cartão]($card_url)
+:point_right: [Open the card]($card_url)
 
-Obrigado! :pray:
+Thank you! :pray:

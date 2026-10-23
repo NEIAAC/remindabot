@@ -43,9 +43,15 @@ default at `/config/message.txt`; mount your own copy over it as in the compose 
 Things to know when editing:
 
 - Variables: `$responsible_name` (who receives it), `$co_responsibles` (the *other* notifyees of
-  the card), `$card_title`, `$board_title`, `$due_date`, `$due_date_long`, `$days_left`,
-  `$days_left_text`, `$remind_before` (the reminder behind this message: `7` for the "7 days
-  before" one), `$card_url`.
+  the card), `$card_title`, `$board_title`, `$due_date` (`2026-10-25`), `$due_year` (`2026`),
+  `$due_month` (`10`), `$due_day` (`25`), `$days_left` (`12`), `$remind_before` (the reminder
+  behind this message: `7` for the "7 days before" one), `$card_url`.
+- **The bot adds no words of its own to a message.** Every word is in the file, so another
+  language is just another file. That is why a date comes as numbers (write it your way:
+  `$due_day/$due_month/$due_year` for 25/10/2026) and why there is no "N days left" phrase:
+  write `$days_left days left` yourself. The number is not declined, so one day reads "1 days
+  left"; that is accepted, a reminder one day ahead being rare. Where a name or a card title is
+  missing, the message shows a dash (`—`).
 - A variable directly followed by a letter, digit or `_` needs braces: `${board_title}`.
   (Without braces `$board_title_` would be read as a different variable.)
 - Write `$$` for a literal dollar sign.

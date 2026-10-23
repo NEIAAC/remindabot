@@ -98,10 +98,9 @@ def test(ctx: Ctx) -> str:
     due = ctx.today + timedelta(days=7)
     message = render.render(ctx.template(), {
         "responsible_name": render.sanitize_inline(display_name(ctx.driver.fresh_user(ctx.user_id)), 80,
-                                                   fallback="colega"),
-        "co_responsibles": "Ana, Rui", "card_title": "Cartão de exemplo", "board_title": "Quadro de exemplo",
-        "due_date": due.strftime("%d/%m/%Y"), "due_date_long": render.format_long_pt(due),
-        "days_left": "7", "days_left_text": render.days_text(7), "remind_before": "7",
+                                                   fallback=render.UNKNOWN),
+        "co_responsibles": "Ana, Rui", "card_title": "Example card", "board_title": "Example board",
+        **render.date_values(due), "days_left": "7", "remind_before": "7",
         "card_url": f"{ctx.cfg.site_url}/boards",
     })
     ctx.driver.send_dm(ctx.user_id,

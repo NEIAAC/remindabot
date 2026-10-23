@@ -4,7 +4,12 @@
 * `render` fills the variables in for one recipient.
 * `sanitize_inline` neutralizes text typed by users (card titles, names) before it is put in a
   message that comes from the bot.
-* `format_long_pt` / `days_text` produce the Portuguese date and "N days left" phrases.
+* `date_values` gives the template the due date as NUMBERS.
+
+The code puts no words of its own in a reminder: every word of the message is in the template, so
+changing the language is editing a file. That is why a date is handed over as numbers (the template
+arranges them as it likes: 2026-10-25, 25/10/2026, ...) and why there is no "N days left" phrase (the
+template writes "$days_left days left"; "1 days left" is accepted).
 """
 from __future__ import annotations
 
@@ -25,35 +30,27 @@ PLACEHOLDERS = (
     "co_responsibles",    # the OTHER people notified about this card (empty when there are none)
     "card_title",
     "board_title",
-    "due_date",           # 25/10/2026
-    "due_date_long",      # domingo, 25 de outubro de 2026
+    "due_date",           # 2026-10-25
+    "due_year",           # 2026
+    "due_month",          # 10
+    "due_day",            # 25
     "days_left",          # 12
-    "days_left_text",     # whole phrase: "faltam 12 dias", "falta 1 dia" or "é hoje"
     "remind_before",      # the reminder behind this message, in days: 7 = the "7 days before" one
     "card_url",
 )
 
-# Portuguese names, spelled out here so the output never depends on the machine's locale settings.
-_MONTHS = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
-           "agosto", "setembro", "outubro", "novembro", "dezembro")
-_WEEKDAYS = ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
-             "sexta-feira", "sábado", "domingo")
+# What stands in for a name or a title that is missing: a symbol, because the code has no words.
+UNKNOWN = "\u2014"
 
 
 class TemplateError(Exception):
     """The message template is missing, empty, or uses a variable that does not exist."""
 
 
-def format_long_pt(day: date) -> str:
-    """'domingo, 25 de outubro de 2026'."""
-    return f"{_WEEKDAYS[day.weekday()]}, {day.day} de {_MONTHS[day.month - 1]} de {day.year}"
-
-
-def days_text(days: int) -> str:
-    """Whole phrase, because the verb changes with the number: faltam 12 dias / falta 1 dia / é hoje."""
-    if days == 0:
-        return "é hoje"
-    return "falta 1 dia" if days == 1 else f"faltam {days} dias"
+def date_values(day: date) -> dict[str, str]:
+    """A date as numbers only, for the template to arrange: 2026-10-25, 2026, 10, 25."""
+    return {"due_date": day.isoformat(), "due_year": f"{day.year:04d}", "due_month": f"{day.month:02d}",
+            "due_day": f"{day.day:02d}"}
 
 
 def template_body(text: str) -> str:

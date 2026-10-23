@@ -466,10 +466,10 @@ class Message(CommandsBase):
         self.assertIn("Texto novo", self.run_command("remind_getmessage"))
         self.assertIn("message", self.run_command("remind_reset", "message"))
         self.assertIn("the file", self.run_command("remind_getmessage"))
-        self.assertIn("Olá", self.run_command("remind_getmessage"))
+        self.assertIn("Hi", self.run_command("remind_getmessage"))        # the shipped, English default
 
     def test_test_sends_a_preview_only_to_the_caller_and_records_nothing(self):
-        self.submit("Pré $responsible_name $days_left_text")
+        self.submit("Preview $responsible_name $days_left days left")
         self.card_in_window()
         before = len(self.fake.posts)               # the form's own confirmation message is already there
         text = self.run_command("remind_test")
@@ -477,7 +477,7 @@ class Message(CommandsBase):
         previews = self.fake.posts[before:]
         self.assertEqual([p["user_id"] for p in previews], [ADMIN_ID])
         # root has no name filled in, so the greeting is their @username, with the mention made inert
-        self.assertIn("Pré @​root faltam 7 dias", previews[0]["message"])
+        self.assertIn("Preview @​root 7 days left", previews[0]["message"])
         self.assertIn("not a real reminder", previews[0]["message"])
         store = self.store()
         self.assertEqual(store.sent_since(0), 0)           # no record, no cap used

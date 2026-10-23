@@ -29,7 +29,7 @@ able to change it safely after reading a few pages.
 
 These are not style. Each has a test, and a pull request that breaks one will fail it.
 
-- **Python 3.12 and the standard library only.** No dependencies to update or to hijack.
+- **Python 3.12 or newer (the image runs 3.14) and the standard library only.** No dependencies to update or to hijack.
 - **Helpers are shell scripts**, not Python (Python lives in `src/` and `tests/` only).
 - **No secret in the repository, and no secret on a command line.** Tokens and passwords go through
   a file, standard input or the environment, never an argument, because `ps` shows arguments to

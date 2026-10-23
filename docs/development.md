@@ -7,7 +7,7 @@ enough.
 ## The layout
 
 ```
-src/remindabot/        the bot: Python 3.12, standard library only
+src/remindabot/        the bot: Python 3.12 or newer (the image runs 3.14), standard library only
   __main__.py          the command line: reads the flags and the environment, calls the Bot
   bot.py               Bot: wires everything together. run() is the daemon; once(), check()
                        and register_commands() are the one-off actions
@@ -19,7 +19,7 @@ src/remindabot/        the bot: Python 3.12, standard library only
   runner.py            ONE pass: collect due cards, then send; caps, audience, claim/send/confirm.
                        Also builds the report (boards, cards, people) the commands show
   logic.py             the reminder rule and the day-by-day plan (pure functions, no I/O)
-  render.py            message template loading/validation, Portuguese dates, text sanitizing
+  render.py            message template loading/validation, the date as numbers, text sanitizing
   store.py             the SQLite state: claims, "sent" records, history, daily counts
   overrides.py         what administrators changed from chat, the pause, alert opt-ins, form signatures
   alerts.py            direct messages to administrators when something needs a person
@@ -88,7 +88,7 @@ Mattermost's HTTP yourself (use `ctx.driver`).
 
 The rule of this repository: **Python is the bot and its tests; everything else is shell or
 compose.** A test (`tests/test_scripts.py`) fails if a `.py` file shows up outside `src/` and
-`tests/`. The only thing you need on your machine is Docker; with Python 3.12 you can also run the
+`tests/`. The only thing you need on your machine is Docker; with Python 3.12 or newer you can also run the
 unit tests and the bot directly (`python3 -m unittest`, `PYTHONPATH=src python3 -m remindabot --help`).
 
 ## The dev stack
@@ -164,7 +164,7 @@ and after changing anything that touches Boards or Mattermost (for example a new
 **1. The test suite** (no dependencies, no Docker, a few minutes). From the repository root:
 
 ```shell
-python3 -m unittest                                  # with Python 3.12 on your machine; about 8 minutes
+python3 -m unittest                                  # with Python 3.12+ on your machine; about 8 minutes
 docker compose --profile test run --rm unit          # or in a container, nothing installed
 ```
 

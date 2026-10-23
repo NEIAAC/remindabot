@@ -107,12 +107,30 @@ class Basics(Base):
         self.fake.add_card("b1", "c1", "Workshop de Python", due_ms=in_days(12), notifyees=[U1, U2], remind=12)
         self.go()
         msg = next(p["message"] for p in self.fake.posts if p["user_id"] == U1)
-        self.assertIn("Olá Alice!", msg)
+        self.assertIn("Hi Alice!", msg)                     # the shipped default is English
         self.assertIn("**Workshop de Python**", msg)
-        self.assertIn("domingo, 25 de outubro de 2026", msg)
-        self.assertIn("faltam 12 dias", msg)
+        self.assertIn("**2026-10-25**", msg)
+        self.assertIn("12 days left", msg)
         self.assertIn("https://chat.test/boards/team/team1/b1/view-b1/c1", msg)
         self.assertNotIn("$", msg)
+
+    def test_the_code_adds_no_word_to_a_message_only_numbers_and_what_people_typed(self):
+        """Every word of a reminder is in the template (so another language is just another file): what the
+        code supplies is the date as numbers, the days as a number, and names and titles as typed."""
+        custom = Path(self.tmp.name) / "numbers.txt"
+        custom.write_text("$due_date|$due_year|$due_month|$due_day|$days_left|$remind_before|$due_day/$due_month/$due_year",
+                          encoding="utf-8")
+        self.template = render.load_template(custom)
+        self.simple_board()
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(12), notifyees=[U1], remind=12)
+        self.go()
+        self.assertEqual(self.fake.posts[0]["message"], "2026-10-25|2026|10|25|12|12|25/10/2026")
+
+    def test_a_day_left_is_always_plural_and_that_is_accepted(self):
+        self.simple_board()
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(1), notifyees=[U1], remind=3)
+        self.go()
+        self.assertIn("1 days left", self.fake.posts[0]["message"])
 
     def test_dry_run_changes_nothing_and_respects_existing_state(self):
         self.simple_board(member=True)
@@ -266,7 +284,7 @@ class Limits(Base):
 
     def test_long_notifyee_lists_stay_short(self):
         custom = Path(self.tmp.name) / "colleagues.txt"
-        custom.write_text("Olá $responsible_name. Colegas: $co_responsibles.", encoding="utf-8")
+        custom.write_text("Hi $responsible_name. Colleagues: $co_responsibles.", encoding="utf-8")
         self.template = render.load_template(custom)
         self.simple_board(member=True)
         ids = []
@@ -277,7 +295,7 @@ class Limits(Base):
         self.go()
         self.assertEqual(len(self.fake.posts), 40)
         msg = next(p["message"] for p in self.fake.posts if p["user_id"] == uid("x0"))
-        self.assertIn("e mais 29", msg)                     # 39 colleagues: 10 named + "and 29 more"
+        self.assertIn("+29", msg)                           # 39 colleagues: 10 named + "+29" (a symbol, not a word)
         self.assertEqual(msg.count("Person "), 10 + 1)      # the greeting plus ten listed names
         self.assertLess(max(len(p["message"]) for p in self.fake.posts), 1000)
 
@@ -500,19 +518,19 @@ class Security(Base):
         for bad in ("](http://", "(http://evil", "http://evil", "@all", "~town-square", "www.evil", "\n# Heading", "`code`", "**bold**"):
             self.assertNotIn(bad, msg, bad)
         self.assertIn("evil", msg)                          # it is still shown, just inert
-        self.assertIn("[Abrir o cartão](https://chat.test/", msg)   # our own link is intact
+        self.assertIn("[Open the card](https://chat.test/", msg)    # our own link is intact
 
     def test_bidi_overrides_and_invisible_characters_are_removed(self):
         s = render.sanitize_inline
         self.assertEqual(s("\u202eABC\u202c done"), "ABC done")        # right-to-left override
         self.assertEqual(s("a\u200bb\u2066c\u2069"), "abc")           # zero-width and isolates
-        self.assertEqual(s("\x00\x01\u200b", fallback="(sem título)"), "(sem título)")
+        self.assertEqual(s("\x00\x01\u200b", fallback=render.UNKNOWN), render.UNKNOWN)
 
     def test_a_title_of_only_invisible_characters_still_gives_a_readable_message(self):
         self.simple_board(member=True)
         self.fake.add_card("b1", "c1", "\x00\u200b\u202e", due_ms=in_days(5), notifyees=[U1], remind=12)
         self.go()
-        self.assertIn("(sem título)", self.fake.posts[0]["message"])
+        self.assertIn(render.UNKNOWN, self.fake.posts[0]["message"])
         self.assertNotIn("****", self.fake.posts[0]["message"])
 
     def test_sanitize_inline_unit(self):
@@ -823,16 +841,16 @@ class MultipleReminders(Base):
                 sent_on[offset] = self.fake.posts[-1]["message"]
         # 7 days before = day 3, 3 days before = day 7, 1 day before = day 9
         self.assertEqual(sorted(sent_on), [3, 7, 9])
-        self.assertIn("faltam 7 dias", sent_on[3])
-        self.assertIn("faltam 3 dias", sent_on[7])
-        self.assertIn("falta 1 dia", sent_on[9])
+        self.assertIn("7 days left", sent_on[3])
+        self.assertIn("3 days left", sent_on[7])
+        self.assertIn("1 days left", sent_on[9])
 
     def test_a_late_card_gets_one_message_not_one_per_missed_stage(self):
         self.simple_board(member=True)
         self.fake.add_card("b1", "c1", "Late", due_ms=in_days(2), notifyees=[U1], remind="14;7;3;1")
         s = self.go()                                      # 2 days left: stages 14, 7 and 3 all passed
         self.assertEqual((s.sent, len(self.fake.posts)), (1, 1))
-        self.assertIn("faltam 2 dias", self.fake.posts[0]["message"])
+        self.assertIn("2 days left", self.fake.posts[0]["message"])
         self.assertEqual(self.go().sent, 0)                # same day again: nothing
         self.assertEqual(self.go(today=TODAY + timedelta(days=1)).sent, 1)   # 1 day left: the last stage
         self.assertEqual(self.go(today=TODAY + timedelta(days=2)).sent, 0)   # due today: already announced
@@ -926,7 +944,7 @@ class MultipleReminders(Base):
             s = self.go()
         self.assertEqual(s.sent, 1)
         self.assertTrue(any("tres" in m and "1.5" in m and "1 semana" in m for m in logs.output), logs.output)
-        self.assertIn("faltam 5 dias", self.fake.posts[0]["message"])   # the "1" of "1 semana" did not become a reminder
+        self.assertIn("5 days left", self.fake.posts[0]["message"])   # the "1" of "1 semana" did not become a reminder
 
     def test_zero_and_minus_one_are_silent_and_never_remind(self):
         self.simple_board(member=True)
@@ -1058,11 +1076,11 @@ class NotifyeesAndSettings(Base):
             s = self.go()
         self.assertEqual((s.sent, s.no_notifyees), (0, 1))
 
-    def test_the_first_message_on_the_due_day_says_it_is_today(self):
+    def test_the_first_message_on_the_due_day_says_zero_days_are_left(self):
         self.simple_board(member=True)
         self.fake.add_card("b1", "c1", "A", due_ms=in_days(0), notifyees=[U1], remind="7;3;1")
         self.assertEqual(self.go().sent, 1)
-        self.assertIn("é hoje", self.fake.posts[0]["message"])
+        self.assertIn("0 days left", self.fake.posts[0]["message"])    # no special word for today: the code has none
 
     def test_a_number_above_the_maximum_is_reported_and_the_rest_still_works(self):
         self.simple_board(member=True)

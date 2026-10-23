@@ -194,7 +194,7 @@ class LiveStack(unittest.TestCase):
             self.check(newest[0]["user_id"] == self.bot_id, "... and it is from the bot (Remindabot)")
             # devadmin has no nickname or full name, so the greeting is "@username" with an invisible
             # zero-width space after the "@" (U+200B): it reads as a name but does not ping anybody
-            self.check(message.startswith("Olá @​devadmin!"), "... addressed to devadmin by name", message[:120])
+            self.check(message.startswith("Hi @​devadmin!"), "... addressed to devadmin by name", message[:120])
             self.check(DEVADMIN_CARD in message, "... about the card that lists devadmin as a notifyee", message[:300])
             link = re.search(r"/boards/team/(\w+)/(\w+)/(\w+)/(\w+)\)", message)
             self.check(bool(link), "... with a full card link", message[-300:])
@@ -266,7 +266,7 @@ class LiveStack(unittest.TestCase):
         posts = s.call(f"/api/v4/channels/{channel}/posts", self.admin_token)[1]
         self.check(len(posts.get("order", [])) == before + 1, "... and it reached devadmin")
         newest = posts["posts"][posts["order"][0]]["message"] if posts.get("order") else ""
-        self.check("falta 1 dia" in newest and "Cartao novo" in newest, "... saying 1 day is left", newest[:200])
+        self.check("1 days left" in newest and "Cartao novo" in newest, "... saying 1 day is left", newest[:200])
 
     # -- 7 -------------------------------------------------------------------------------------------
 
@@ -378,18 +378,18 @@ class LiveStack(unittest.TestCase):
                    "... a text box prefilled with the current message", str(field)[:200])
         submit = {"url": form["url"], "callback_id": dialog["callback_id"], "state": dialog["state"],
                   "channel_id": channel, "team_id": team, "cancelled": False,
-                  "submission": {"message": "Olá $responsible_name!\nVerificação: $card_title"}}
-        wrong = s.call("/api/v4/actions/dialogs/submit", admin, "POST", {**submit, "submission": {"message": "Olá $card_titel"}})
+                  "submission": {"message": "Hi $responsible_name!\nCheck: $card_title"}}
+        wrong = s.call("/api/v4/actions/dialogs/submit", admin, "POST", {**submit, "submission": {"message": "Hi $card_titel"}})
         self.check(wrong[0] == 200 and "card_titel" in json.dumps(wrong[1]),
                    "a message with a typo is rejected with the reason shown in the form", str(wrong)[:300])
         good = s.call("/api/v4/actions/dialogs/submit", admin, "POST", submit)
         self.check(good[0] == 200 and json.dumps(good[1]).count("error") == 0, "a valid message is saved", str(good)[:300])
         text = execute("/remind_getmessage")
-        self.check("custom message" in text and "Verificação" in text, "/remind_getmessage shows the new text", text[:300])
+        self.check("custom message" in text and "Check:" in text, "/remind_getmessage shows the new text", text[:300])
         before = len(dm_posts())
         execute("/remind_test")
         preview = dm_posts()
-        self.check(len(preview) == before + 1 and "Verificação: Cartão de exemplo" in preview[0]["message"],
+        self.check(len(preview) == before + 1 and "Check: Example card" in preview[0]["message"],
                    "/remind_test uses the new message", preview[0]["message"][:160] if preview else "")
         self.check("message" in execute("/remind_reset message"), "/remind_reset message goes back to the file")
         forged = s.call("/api/v4/actions/dialogs/submit", admin, "POST", {**submit, "state": "forged"})

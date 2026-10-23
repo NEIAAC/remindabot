@@ -449,7 +449,7 @@ def _remind_card(cfg, mm, store, template, summary, budget: _Budget, today, item
             days_left=days_left, user_id=user["id"], username=user.get("username") or "", state=state))
 
     # Display names, made safe to put into a message (see render.sanitize_inline).
-    names = {u["id"]: render.sanitize_inline(display_name(u), 80, fallback="colega") for u in people}
+    names = {u["id"]: render.sanitize_inline(display_name(u), 80, fallback=render.UNKNOWN) for u in people}
 
     for user in people:
         username = user.get("username")
@@ -470,16 +470,14 @@ def _remind_card(cfg, mm, store, template, summary, budget: _Budget, today, item
         # The other people told about this card, for templates that mention them (capped to keep it short).
         others = [name for uid, name in names.items() if uid != user["id"]]
         if len(others) > MAX_NAMES_LISTED:
-            others = others[:MAX_NAMES_LISTED] + [f"e mais {len(others) - MAX_NAMES_LISTED}"]
+            others = others[:MAX_NAMES_LISTED] + [f"+{len(others) - MAX_NAMES_LISTED}"]
         message = render.render(template, {
             "responsible_name": names[user["id"]],
             "co_responsibles": ", ".join(others),
-            "card_title": render.sanitize_inline(card.title, fallback="(sem título)"),
+            "card_title": render.sanitize_inline(card.title, fallback=render.UNKNOWN),
             "board_title": render.sanitize_inline(ctx.title),
-            "due_date": card.due.strftime("%d/%m/%Y"),
-            "due_date_long": render.format_long_pt(card.due),
+            **render.date_values(card.due),
             "days_left": str(days_left),
-            "days_left_text": render.days_text(days_left),
             "remind_before": str(stage),
             "card_url": ctx.card_url(cfg.site_url, card.id),
         })

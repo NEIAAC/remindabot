@@ -172,7 +172,8 @@ def for_command_reply(text: str) -> str:
 
 def display_name(user: dict) -> str:
     """Same preference as the server's TeammateNameDisplay=nickname_full_name; a person with neither
-    is greeted by their @username ("colega" only if even that is missing)."""
+    is greeted by their @username (an empty name only if even that is missing; the caller then
+    puts a symbol there, because the code has no words of its own)."""
     nickname = (user.get("nickname") or "").strip()
     if nickname:
         return nickname
@@ -180,7 +181,7 @@ def display_name(user: dict) -> str:
     if full:
         return full
     username = user.get("username")
-    return f"@{username}" if username else "colega"
+    return f"@{username}" if username else ""
 
 
 class Driver:

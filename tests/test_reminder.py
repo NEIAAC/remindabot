@@ -332,11 +332,14 @@ class Greeting(unittest.TestCase):
         self.assertEqual(display_name({"username": "alice"}), "@alice")
         self.assertEqual(display_name({"username": "alice", "nickname": "", "first_name": "", "last_name": None}), "@alice")
 
-    def test_only_a_user_without_even_a_username_is_called_colega(self):
-        self.assertEqual(display_name({}), "colega")
+    def test_a_user_without_even_a_username_has_no_name_and_the_code_puts_in_no_word(self):
+        """The code has no words of its own: a symbol stands in for the missing name."""
+        self.assertEqual(display_name({}), "")
+        self.assertEqual(render.sanitize_inline(display_name({}), 80, fallback=render.UNKNOWN), render.UNKNOWN)
+        self.assertFalse(render.UNKNOWN.isalnum(), "a symbol, not a word")
 
     def test_the_username_in_the_message_is_shown_but_does_not_mention_anyone(self):
-        shown = render.sanitize_inline(display_name({"username": "alice"}), 80, fallback="colega")
+        shown = render.sanitize_inline(display_name({"username": "alice"}), 80, fallback=render.UNKNOWN)
         self.assertEqual(shown.replace("\u200b", ""), "@alice")
         self.assertNotIn("@alice", shown, "an invisible character must break the mention")
 
@@ -349,9 +352,9 @@ class Templates(unittest.TestCase):
         return p
 
     def test_comment_header_is_cut_and_placeholders_render(self):
-        p = self.write("header $not_a_placeholder\n-----8<-----\nOlá $responsible_name, falta $days_left_text.\n")
+        p = self.write("header $not_a_placeholder\n-----8<-----\nHi $responsible_name, $days_left days left.\n")
         t = render.load_template(p)
-        self.assertEqual(render.render(t, {n: n for n in render.PLACEHOLDERS}), "Olá responsible_name, falta days_left_text.")
+        self.assertEqual(render.render(t, {n: n for n in render.PLACEHOLDERS}), "Hi responsible_name, days_left days left.")
 
     def test_unknown_placeholder_is_rejected(self):
         with self.assertRaises(render.TemplateError):
@@ -361,11 +364,34 @@ class Templates(unittest.TestCase):
         with self.assertRaises(render.TemplateError):
             render.load_template(self.write("comentário\n-----8<-----\n   \n"))
 
-    def test_portuguese_dates(self):
-        self.assertEqual(render.format_long_pt(date(2026, 10, 25)), "domingo, 25 de outubro de 2026")
-        self.assertEqual(render.days_text(0), "é hoje")
-        self.assertEqual(render.days_text(1), "falta 1 dia")
-        self.assertEqual(render.days_text(12), "faltam 12 dias")
+    def test_a_date_is_handed_to_the_template_as_numbers_only(self):
+        self.assertEqual(render.date_values(date(2026, 10, 25)),
+                         {"due_date": "2026-10-25", "due_year": "2026", "due_month": "10", "due_day": "25"})
+        self.assertEqual(render.date_values(date(2026, 3, 4)),
+                         {"due_date": "2026-03-04", "due_year": "2026", "due_month": "03", "due_day": "04"})
+        for day in (date(2026, 1, 1), date(2026, 12, 31), date(2028, 2, 29)):
+            self.assertTrue(all(value.isdigit() or value.replace("-", "").isdigit()
+                                for value in render.date_values(day).values()), "no word comes from the code")
+
+    def test_the_template_arranges_the_date_and_writes_all_the_words(self):
+        t = render.parse_template("$due_day/$due_month/$due_year ($days_left dias)")
+        values = {n: "x" for n in render.PLACEHOLDERS} | render.date_values(date(2026, 10, 25)) | {"days_left": "1"}
+        self.assertEqual(render.render(t, values), "25/10/2026 (1 dias)")
+
+    def test_the_code_keeps_the_words_of_the_old_phrases_out_of_the_message(self):
+        for gone in ("due_date_long", "days_left_text"):
+            self.assertNotIn(gone, render.PLACEHOLDERS)
+            with self.assertRaises(render.TemplateError, msg=gone):
+                render.parse_template(f"${gone}")
+
+    def test_no_portuguese_word_is_left_in_the_code_that_builds_a_message(self):
+        src = Path(__file__).resolve().parent.parent / "src" / "remindabot"
+        words = re.compile(r"\b(faltam|falta 1|colega|sem título|e mais|Olá|janeiro|fevereiro|março|abril|maio|junho|"
+                           r"julho|agosto|setembro|outubro|novembro|dezembro|segunda-feira|domingo)\b")
+        for path in sorted(src.rglob("*.py")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                with self.subTest(file=path.name, line=number):
+                    self.assertIsNone(words.search(line), "the words of a message belong in config/message.txt")
 
     def test_shipped_template_is_valid(self):
         render.load_template(Path(__file__).resolve().parent.parent / "config" / "message.txt")

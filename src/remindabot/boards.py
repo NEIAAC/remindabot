@@ -16,6 +16,7 @@ from typing import Iterable, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .driver import ApiError, Client, is_valid_id
+from .render import UNKNOWN
 
 log = logging.getLogger("reminder")
 
@@ -221,7 +222,7 @@ def decode_card(card: dict, schema: Schema, default_tz: ZoneInfo) -> Card:
     remind, unreadable = decode_remind_list(props.get(schema.remind_id))
     return Card(
         id=str(card["id"]),
-        title=title if isinstance(title, str) and title.strip() else "(sem título)",
+        title=title if isinstance(title, str) and title.strip() else UNKNOWN,
         due=decode_date(props.get(schema.due_id), default_tz),
         remind_before=remind,
         notifyees=decode_people(props.get(schema.notifyees_id)),
