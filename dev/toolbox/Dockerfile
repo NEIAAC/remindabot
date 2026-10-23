@@ -1,7 +1,7 @@
 # The few programs the helper scripts (scripts/) and the live-stack tests need, so that nothing but
 # Docker has to be installed on a developer's machine. Used by compose.yaml (the `seed` step and the
 # `unit` / `e2e` test services) and by dev/sandbox. Nothing of it ships with the bot.
-FROM python:3.12-alpine
+FROM python:3.14-alpine
 
 RUN apk add --no-cache bash curl jq tzdata ca-certificates
 
