@@ -14,6 +14,7 @@ reader, and the files are written in one plain style):
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -108,10 +109,18 @@ class Release(unittest.TestCase):
 
 
 class CiMatchesTheImage(unittest.TestCase):
-    def test_the_tests_run_on_the_python_of_the_image(self):
+    def test_the_tests_run_on_the_python_the_dockerfile_names_and_nobody_has_to_keep_two_numbers_equal(self):
+        """The version is READ from the Dockerfile by the workflow (a copy of the number once went stale, and
+        CI tested on 3.12 an image that runs 3.14), so this checks that the very command it runs finds it."""
+        tests = job(CI, "test")
+        self.assertIn("python-version: ${{ steps.python.outputs.version }}", tests)
+        self.assertNotRegex(tests, r'python-version: "?\d', "a typed-in version would go stale")
+        command = re.search(r"version=\$\(sed -n '([^']+)' Dockerfile\)", tests)
+        self.assertIsNotNone(command, "the step that reads the version from the Dockerfile")
+        found = subprocess.run(["sed", "-n", command.group(1), str(ROOT / "Dockerfile")], capture_output=True, text=True)
         base = re.search(r"(?m)^FROM python:(\d+\.\d+)-slim$", (ROOT / "Dockerfile").read_text(encoding="utf-8")).group(1)
-        self.assertIn(f'python-version: "{base}"', job(CI, "test"),
-                      "change .github/workflows/ci.yml together with the Dockerfile's base image")
+        self.assertEqual(found.stdout.strip(), base)
+        self.assertRegex(tests, r"\[ -n \"\$version\" \] \|\|", "an empty version must stop the job, not pick a default")
 
     def test_the_image_is_built_on_every_pull_request_but_never_pushed_there(self):
         image = job(CI, "image")

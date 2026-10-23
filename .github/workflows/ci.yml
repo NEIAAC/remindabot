@@ -24,10 +24,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # the version of the image's base (Dockerfile); a test keeps the two equal
+      # The tests run on the Python of the image (the Dockerfile's base): read from there, so a base-image
+      # bump (Dependabot's) is tested on that Python with nothing else to edit.
+      - id: python
+        run: |
+          version=$(sed -n 's/^FROM python:\([0-9][0-9.]*\)-slim$/\1/p' Dockerfile)
+          [ -n "$version" ] || { echo "no 'FROM python:X.Y-slim' line in the Dockerfile"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.14"
+          python-version: ${{ steps.python.outputs.version }}
       - run: python -m unittest
 
   image:
