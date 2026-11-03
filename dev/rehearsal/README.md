@@ -31,22 +31,20 @@ are done. Card titles and board names are kept (they are what the reminders are 
 
 The production file names a published image, `image: ghcr.io/neiaac/remindabot:<version>`, which the
 repository's release workflow builds and publishes when you push a version tag (`CONTRIBUTING.md`,
-"Releasing a version"). `rehearse.sh deploy` tests that image **without a login**, the way a server
-that never logged in to GitHub would pull it, and says `NO` loudly if it cannot.
+"Releasing a version"). There are two ways for the server to get it:
 
-When this was first checked (2026-10-19) the repository was private and refused anonymous access, so
-a server could not have fetched anything. Do this once:
+| The package is | The server needs | How to know |
+| --- | --- | --- |
+| **public** | nothing | `rehearse.sh deploy ... published` says "it can be pulled without a login". |
+| **private** (the default for a new package; an organisation can forbid public ones) | `docker login ghcr.io` once, with a token that can only read packages | `deploy` says "only WITH a login". The steps are in [docs/setup.md](../../docs/setup.md#setting-it-up) ("If the package is private"). |
 
-1. Make `NEIAAC/remindabot` public (Settings, last section). It is MIT-licensed and holds no secrets
-   or real people (tests enforce it).
-2. Push the first tag (`v1.0.0`): the workflow runs the tests and publishes `ghcr.io/neiaac/remindabot:1.0.0`.
-3. Open the package (the organisation's *Packages*) and check that its visibility is **Public**. A new
-   package is sometimes created private, and an organisation can forbid public packages.
-4. Check it as the server will: `docker logout ghcr.io; docker pull ghcr.io/neiaac/remindabot:1.0.0`, or
-   run `rehearse.sh deploy ... published`.
+Whichever it is, practise it here: after `deploy`, run the same `docker login` in the rehearsal
+(`sudo docker login ghcr.io ...` if you use `sudo` for Docker) before `docker compose up -d`. The first
+real pull of the image only exists after the first tag is pushed (`v1.0.0`): until then `deploy` says
+`NO`, which is the right answer.
 
-If the package must stay private, the server needs `docker login ghcr.io` once, with a token that can
-only read packages.
+If the package is private, the repository is not the one that matters: a person who can read the
+repository can read the package, because the release workflow links the two.
 
 ## Before you start
 
@@ -94,7 +92,7 @@ column says what is different in the rehearsal and what to look at.
 | b. The new file | `dev/rehearsal/rehearse.sh deploy /path/to/chat/docker-compose.yml` | The printed **diff** is exactly what changes on the server. Read the line "can the production server pull the image": see [above](#before-the-real-deployment-the-server-must-be-able-to-get-the-bot). By default the bot is built from this checkout (the image may not be published yet); use `... published` as the second argument to pull the real image, as the server will. |
 | c. Bot accounts | System Console → Integrations → *Enable Bot Account Creation*. | Same screen as production. |
 | d. The bot | System Console → Bot Accounts → *Add Bot Account* (`remindabot`, role Member). Copy the token into `dev/rehearsal/work/.env` as `REMINDER_BOT_TOKEN=`. Add the bot to every team. | Never paste the token anywhere else. |
-| e. Start it | `cd dev/rehearsal/work && sudo docker compose up -d` (the script prints the exact command; with `local` it adds `--build`) | **Mattermost is recreated** (the new `ALLOWEDUNTRUSTEDINTERNALCONNECTIONS` setting): time how long the chat is unreachable (`while sleep 1; do curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8068/api/v4/system/ping; done`). On the server that is a short outage; pick a quiet moment. |
+| e. Start it | `cd dev/rehearsal/work`, then (private package, `published` mode) the `docker login ghcr.io` of [docs/setup.md](../../docs/setup.md#setting-it-up), then `sudo docker compose up -d` (the script prints the exact command; with `local` it adds `--build` and needs no login) | **Mattermost is recreated** (the new `ALLOWEDUNTRUSTEDINTERNALCONNECTIONS` setting): time how long the chat is unreachable (`while sleep 1; do curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8068/api/v4/system/ping; done`). On the server that is a short outage; pick a quiet moment. |
 | f. Look before it sends | `sudo docker compose run --rm reminder python -m remindabot --check`, then `--join-boards`, then `--once --dry-run` | Read every line: boards seen, cards in the window, warnings, nobody in `Notifyees`, unreadable private boards. Open a card link. |
 | g. The chat commands | `sudo docker compose run --rm -e REMINDER_ADMIN_TOKEN=... reminder python -m remindabot --register-commands` (an admin's personal access token), then `/remind_help`, `/remind_status`, `/remind_send` in the browser | Shows whether Mattermost can reach `reminder:8080`. |
 | h. The daily run | `/remind_setsend` to two minutes from now, wait, then `/remind_status` and `/remind_history` | The real scheduler, in the real container, sends once; nothing twice. Restore the default with `/remind_reset`. |

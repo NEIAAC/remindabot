@@ -16,8 +16,8 @@ boards: 12 seen, 3 with the required properties, 0 joined, 1 unreadable | cards:
 | --- | --- | --- |
 | `daily pass finished: ... N sent` | Normal. | Nothing. |
 | `joined open board 'X' so its cards can be read` | The bot became a member of an open board. | Nothing (optionally run the read-only tool). |
-| `open board 'X': the bot is not a member and may not join now` | `REMINDER_AUTO_JOIN=false`, or dry-run. | Run `--join-boards`, or add the bot to the board. |
-| `cannot read board 'X' (private boards need the bot added...)` | A private board the bot is not a member of. | A board admin adds the bot as a member (Viewer is enough). |
+| `open board 'X': the bot is not a member and may not join now` | `REMINDER_AUTO_JOIN=false`, or dry-run. | Run `--join-boards`, or [add the bot to the board](setup.md#adding-the-bot-to-a-board-by-hand). |
+| `cannot read board 'X' (private boards need the bot added...)` | A private board the bot is not a member of. | A board admin [adds the bot as a member](setup.md#adding-the-bot-to-a-board-by-hand) (Viewer is enough; the Share dialog cannot do it). |
 | `board 'X' is set up for reminders but cannot be used: property 'Notifyees' is missing` | Wrong property type or missing property. | Fix the board (`Due Date` = Date, `Notifyees` = Multi person, `Remind Before` = Text). |
 | `card 'X' ... is due a reminder but nobody is in 'Notifyees'` | The card has a reminder due and nobody to tell. | Add the people to `Notifyees` on the card. |
 | `card 'X' ... 'Remind Before' contains values that are not a whole number of days ... ignored: tres` | Something between two `;` is not a whole number (a typo, a comma, a unit). | Fix the card, writing numbers separated by `;`. The other numbers in the list still work. |
