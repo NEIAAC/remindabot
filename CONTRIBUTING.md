@@ -50,9 +50,11 @@ The server runs a published image, `ghcr.io/neiaac/remindabot:<version>`. A main
 
 The release workflow (`.github/workflows/release.yml`) then checks that the tag is the version in
 `pyproject.toml`, runs all the tests, and only then publishes the image (`1.0.1` and `1.0`; there is no
-`latest`, on purpose). Production changes by editing the version in its `image:` line, which
-Dependabot proposes in the infrastructure repository; going back is the same edit. A tag that was
-published is never moved: publish a new version instead.
+`latest`, on purpose). Production changes by editing the version in its `image:` line in the infrastructure
+repository (Dependabot proposes it only for a public package); going back is the same edit. A tag that was
+published is never moved: publish a new version instead. The package is private
+(an organisation may forbid public ones): whoever can read the repository can read it, and the server
+logs in with a read-only token (`docs/setup.md`, "If the package is private").
 
 ## Questions, problems, ideas
 
