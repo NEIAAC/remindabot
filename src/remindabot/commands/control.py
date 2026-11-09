@@ -100,7 +100,8 @@ def test(ctx: Ctx) -> str:
         "responsible_name": render.sanitize_inline(display_name(ctx.driver.fresh_user(ctx.user_id)), 80,
                                                    fallback=render.UNKNOWN),
         "co_responsibles": "Ana, Rui", "card_title": "Example card", "board_title": "Example board",
-        **render.date_values(due), "days_left": "7", "remind_before": "7",
+        **render.date_values(due), **render.date_values(due - timedelta(days=3), "last_remind"),
+        "days_left": "7", "remind_before": "7", "last_remind_days_left": "3",
         "card_url": f"{ctx.cfg.site_url}/boards",
     })
     ctx.driver.send_dm(ctx.user_id,

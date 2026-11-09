@@ -138,6 +138,10 @@ Rules worth knowing:
 - Each person gets **each listed reminder once** per card per Due Date, and **never more than one
   message per card per day**. If the Due Date changes, the list starts over for the new date.
   Someone added to `Notifyees` later gets the reminder that applies at that moment.
+- The message can count to the card's **last reminder** instead of the Due Date, when what it asks
+  for is due on that day: with `Remind Before = 12;10` it can say "by 2026-10-15 (2 days left)" and,
+  in the next reminder, "0 days left" (`$last_remind_date`, `$days_left-$last_remind_days_left`; see
+  [Changing the message](docs/configuration.md#changing-the-message)).
 - A card seen late is told once, not once per missed reminder: with `14;7;3;1` and a Due Date
   set when only 2 days are left, there is a single message (the "3 days" reminder, which says
   "2 days left") and then the "1 day" one.

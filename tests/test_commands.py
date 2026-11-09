@@ -484,6 +484,18 @@ class Message(CommandsBase):
         self.assertEqual(store.recent_history(), [])
         store.close()
 
+    def test_the_last_reminder_variables_are_accepted_and_the_preview_shows_them(self):
+        self.assertEqual(self.submit("by $last_remind_date: $days_left-$last_remind_days_left of $last_remind_days_left"), {})
+        before = len(self.fake.posts)
+        self.run_command("remind_test")
+        # the sample card is due in 7 days, with its last reminder 3 days before the due date
+        self.assertIn("by 2026-10-17: 4 of 3", self.fake.posts[before]["message"])
+
+    def test_a_misspelt_last_reminder_variable_is_refused_and_nothing_is_saved(self):
+        reply = self.submit("by $last_remind_dat: $days_left-$last_remind_days_left")
+        self.assertIn("last_remind_dat", reply["errors"]["message"])      # the reason is shown inside the form
+        self.assertIsNone(self.settings().custom_message())
+
     def test_a_template_file_that_broke_is_reported_not_a_traceback(self):
         broken = Path(self.tmp.name) / "broken.txt"
         broken.write_text("Olá $card_titel", encoding="utf-8")

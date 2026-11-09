@@ -4,7 +4,9 @@
 * `render` fills the variables in for one recipient.
 * `sanitize_inline` neutralizes text typed by users (card titles, names) before it is put in a
   message that comes from the bot.
-* `date_values` gives the template the due date as NUMBERS.
+* `date_values` gives the template a date (the due date, the last reminder's day) as NUMBERS.
+* `render` also subtracts numbers written like `$days_left-$last_remind_days_left`; `\\-` between two
+  variables is a plain hyphen instead (see `_subtract`).
 
 The code puts no words of its own in a reminder: every word of the message is in the template, so
 changing the language is editing a file. That is why a date is handed over as numbers (the template
@@ -16,8 +18,10 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date
+from functools import reduce
 from pathlib import Path
 from string import Template
+from typing import Optional
 
 # Everything above this line in message.txt is a comment for editors and is never sent.
 CUT_MARKER = "-----8<-----"
@@ -34,8 +38,13 @@ PLACEHOLDERS = (
     "due_year",           # 2026
     "due_month",          # 10
     "due_day",            # 25
+    "last_remind_date",   # the day of the card's LAST reminder (due date minus its smallest "Remind Before"): 2026-10-15
+    "last_remind_year",   # 2026
+    "last_remind_month",  # 10
+    "last_remind_day",    # 15
     "days_left",          # 12
     "remind_before",      # the reminder behind this message, in days: 7 = the "7 days before" one
+    "last_remind_days_left",  # the card's LAST reminder, in days: the smallest "Remind Before" number, e.g. 10
     "card_url",
 )
 
@@ -47,10 +56,15 @@ class TemplateError(Exception):
     """The message template is missing, empty, or uses a variable that does not exist."""
 
 
-def date_values(day: date) -> dict[str, str]:
-    """A date as numbers only, for the template to arrange: 2026-10-25, 2026, 10, 25."""
-    return {"due_date": day.isoformat(), "due_year": f"{day.year:04d}", "due_month": f"{day.month:02d}",
-            "due_day": f"{day.day:02d}"}
+def date_values(day: Optional[date], prefix: str = "due") -> dict[str, str]:
+    """A date as numbers only, for the template to arrange: 2026-10-25, 2026, 10, 25.
+
+    The names start with `prefix`: due_date, due_year, due_month, due_day, or last_remind_*. A date that
+    does not exist (None) is the dash in all four.
+    """
+    parts = ((UNKNOWN,) * 4 if day is None
+             else (day.isoformat(), f"{day.year:04d}", f"{day.month:02d}", f"{day.day:02d}"))
+    return dict(zip((f"{prefix}_{part}" for part in ("date", "year", "month", "day")), parts))
 
 
 def template_body(text: str) -> str:
@@ -92,10 +106,66 @@ def load_template(path: Path) -> Template:
     return parse_template(text, f"template {path}")
 
 
+# Variables joined by "-" in a template ($days_left-$last_remind_days_left, $x or ${x}) are subtracted
+# when every value is a whole number. A joint written "\-" is a plain hyphen instead, and ends the
+# subtraction before it ($due_day\-$due_month\-$due_year is the text 25-10-2026). `$$` is matched too,
+# so that an escaped dollar is never taken for the start of a chain.
+_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_VARIABLE = r"\$(?:\{" + _NAME + r"\}|" + _NAME + ")"
+_CHAINS = re.compile(r"\$\$|" + _VARIABLE + r"(?:\\?-" + _VARIABLE + ")+")
+_JOINTS = re.compile(r"(\\-|-)")   # what splits a chain into variables (neither can be in a name)
+_WHOLE = re.compile(r"[0-9]{1,18}")  # plain digits only: no sign, spaces, "1_0", "1e3" or other scripts' digits
+
+
+def _number(variable: str, values: dict[str, str]) -> Optional[int]:
+    """The value of a `$name` / `${name}` as a whole number, or None when it is anything else."""
+    name = variable[2:-1] if variable.startswith("${") else variable[1:]
+    value = values.get(name, "")
+    return int(value) if _WHOLE.fullmatch(value) else None
+
+
+def _subtract(found: "re.Match[str]", values: dict[str, str], sums: dict[str, str]) -> str:
+    """What to write for one chain `_CHAINS` found, as template text.
+
+    Variables joined by `-` are subtracted left to right when every value is a whole number, and are
+    left exactly as they were otherwise (they are then shown as text, `Ana-12`). A `\\-` joint ends
+    the subtraction and becomes a plain `-`: `$a-$b\\-$c` is (a minus b), a hyphen, then c.
+
+    A result is not written into the text but kept in `sums` and referred to as `${_sum0}`: written as
+    digits, it could run into the variable before it (`$card_title` and `2` would read `$card_title2`).
+    """
+    text = found.group(0)
+    if text == "$$":
+        return text
+    parts = _JOINTS.split(text)                       # variable, joint, variable, joint, ...
+    groups = [[parts[0]]]
+    for joint, variable in zip(parts[1::2], parts[2::2]):
+        if joint == "-":
+            groups[-1].append(variable)
+        else:
+            groups.append([variable])
+    shown = []
+    for group in groups:
+        numbers = [_number(variable, values) for variable in group]
+        if len(group) > 1 and None not in numbers:
+            name = f"_sum{len(sums)}"
+            sums[name] = str(reduce(lambda left, right: left - right, numbers))
+            shown.append("${" + name + "}")
+        else:
+            shown.append("-".join(group))
+    return "-".join(shown)
+
+
 def render(template: Template, values: dict[str, str]) -> str:
     """Fill in one message. `values` must contain every name in PLACEHOLDERS.
-    Values are inserted as plain text: a `$` inside a card title is never interpreted."""
-    return template.substitute(values)
+
+    Variables joined by `-` are subtracted first ($days_left-$last_remind_days_left is 2 when 12 days
+    are left and the last reminder is 10 days before the due date). That works on the TEMPLATE, never on
+    the values, and the values are inserted as plain text: a `$` inside a card title is never interpreted.
+    """
+    sums: dict[str, str] = {}
+    text = _CHAINS.sub(lambda found: _subtract(found, values, sums), template.template)
+    return Template(text).substitute(values | sums)
 
 
 _ZWSP = "\u200b"  # zero-width space: invisible, but breaks syntax that depends on adjacency

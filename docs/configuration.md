@@ -44,8 +44,31 @@ Things to know when editing:
 
 - Variables: `$responsible_name` (who receives it), `$co_responsibles` (the *other* notifyees of
   the card), `$card_title`, `$board_title`, `$due_date` (`2026-10-25`), `$due_year` (`2026`),
-  `$due_month` (`10`), `$due_day` (`25`), `$days_left` (`12`), `$remind_before` (the reminder
-  behind this message: `7` for the "7 days before" one), `$card_url`.
+  `$due_month` (`10`), `$due_day` (`25`), `$days_left` (`12`, until the due date), `$remind_before`
+  (the reminder behind this message: `7` for the "7 days before" one), `$card_url`, and the card's
+  **last reminder**: `$last_remind_days_left` (the smallest number of `Remind Before`, e.g. `10`),
+  `$last_remind_date` (the due date minus that, `2026-10-15`) and its parts `$last_remind_year`,
+  `$last_remind_month`, `$last_remind_day`.
+- **Counting to the last reminder.** Variables joined by `-` are subtracted, so with
+  `Remind Before = 12;10` and a Due Date of 25 Oct:
+
+  ```
+  by **$last_remind_date** (**$days_left-$last_remind_days_left days left**)
+  ```
+
+  says "by **2026-10-15** (**2 days left**)" in the reminder sent on 13 Oct and "0 days left" in the one
+  sent on 15 Oct. A card the bot sees after its last reminder day gets the real, negative number
+  (`-2 days left`).
+- **Subtracting.** Any two or more variables that hold whole numbers can be subtracted, left to right,
+  with no spaces around the `-`: the days (`$days_left`, `$remind_before`, `$last_remind_days_left`) and
+  the parts of a date (`$due_year`, `$due_month`, `$due_day`, `$last_remind_*`). If any of them is not a
+  whole number, nothing is calculated and the text is shown as it is (`Ana-12`).
+- **A hyphen between two variables is a subtraction, so write `\-` when you want the hyphen.** To show the
+  date `25-10-2026` write `$due_day\-$due_month\-$due_year` (`$due_day-$due_month-$due_year` would show
+  `-2011`). A `\-` is a plain `-` and ends the subtraction before it: `$days_left-$last_remind_days_left\-$due_day`
+  shows `2-25`. It is only special between two variables; anywhere else it is left as you typed it.
+  The same goes for a card or board whose title is a number (`$card_title-$board_title` for the cards
+  `7` and `3` shows `4`): use `\-` between titles.
 - **The bot adds no words of its own to a message.** Every word is in the file, so another
   language is just another file. That is why a date comes as numbers (write it your way:
   `$due_day/$due_month/$due_year` for 25/10/2026) and why there is no "N days left" phrase:

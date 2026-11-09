@@ -56,6 +56,14 @@ class Model:
                 out.append((person, stage, due - today))
         return out
 
+    @staticmethod
+    def last_reminder(numbers, due: int, today: int):
+        """What every message of the pass also says about the card's LAST reminder: the smallest usable number,
+        the days left to it (the plain difference, negative once its day has passed) and its day, which is that
+        many days before the due date."""
+        last = min(n for n in numbers if 1 <= n <= MAX_DAYS)
+        return last, (due - today) - last, (TODAY + timedelta(days=due - last)).isoformat()
+
 
 def written(numbers, rng: random.Random) -> str:
     """How a person might type the list: random spacing, an occasional trailing ';'."""
@@ -77,16 +85,22 @@ class WholePass(Quiet):
     def setUp(self):
         super().setUp()
         template = Path(self.tmp.name) / "model.txt"
-        template.write_text("stage=$remind_before left=$days_left", encoding="utf-8")
+        template.write_text("stage=$remind_before left=$days_left last=$last_remind_days_left "
+                            "to_last=$days_left-$last_remind_days_left on=$last_remind_date", encoding="utf-8")
         self.template = render.load_template(template)
+
+    def shown(self):
+        """What every message says, as a dict per message: user, stage, left, last, to_last, on."""
+        return [{"user": post["user_id"], **dict(part.split("=") for part in post["message"].split())}
+                for post in self.fake.posts]
 
     def delivered(self):
         """Every message so far as a sorted list of (person, stage, days left)."""
-        out = []
-        for post in self.fake.posts:
-            stage, left = (int(part.split("=")[1]) for part in post["message"].split())
-            out.append((post["user_id"], stage, left))
-        return sorted(out)
+        return sorted((m["user"], int(m["stage"]), int(m["left"])) for m in self.shown())
+
+    def delivered_with_last_reminder(self):
+        """... and with what each says about the last reminder: (person, last, days left to it, its day)."""
+        return sorted((m["user"], int(m["last"]), int(m["to_last"]), m["on"]) for m in self.shown())
 
     def one_scenario(self, seed: int):
         rng = random.Random(seed)
@@ -100,7 +114,7 @@ class WholePass(Quiet):
         due = rng.randrange(0, 17)
         card = self.fake.add_card("b1", "c1", "A", due_ms=ti.in_days(due), notifyees=list(people),
                                   remind=written(numbers, rng))
-        model, expected = Model(), []
+        model, expected, expected_last = Model(), [], []
 
         for day in range(0, due + 2):
             if rng.random() < 0.35:                       # the bot is off on some days
@@ -120,8 +134,12 @@ class WholePass(Quiet):
                     dry_store.close()
                 self.assertEqual(len(self.fake.posts), before, (seed, day))
             self.go(today=TODAY + timedelta(days=day))
-            expected += model.pass_for(people, numbers, due, day)
+            sent_now = model.pass_for(people, numbers, due, day)
+            expected += sent_now
+            expected_last += [(person, *model.last_reminder(numbers, due, day)) for person, _, _ in sent_now]
             self.assertEqual(self.delivered(), sorted(expected), f"seed {seed}, day {day}, list {numbers}, due {due}")
+            self.assertEqual(self.delivered_with_last_reminder(), sorted(expected_last),
+                             f"seed {seed}, day {day}, list {numbers}, due {due}: the last reminder")
             # the same day again is always a no-op
             before = len(self.fake.posts)
             self.assertEqual(self.go(today=TODAY + timedelta(days=day)).sent, 0)

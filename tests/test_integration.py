@@ -1,5 +1,6 @@
 """The real client + runner (+ daily loop) against a fake Mattermost that can be made to misbehave."""
 import dataclasses
+import json
 import logging
 import sqlite3
 import tempfile
@@ -1118,6 +1119,65 @@ class NotifyeesAndSettings(Base):
         # ... and the later reminders of that date stay silent too (the old version had sent its one message)
         for offset in (2, 4):
             self.assertEqual(self.go(today=TODAY + timedelta(days=offset)).sent, 0)
+
+
+class CountingToTheLastReminder(Base):
+    """A message can count to the card's LAST reminder instead of the due date: with "12;10" and a card due on
+    the 25th, the reminders of the 13th and the 15th say 2 and 0 days left, and 15 Oct is the date."""
+    TEXT = ("by $last_remind_date ($last_remind_day/$last_remind_month): $days_left-$last_remind_days_left days left "
+            "[last $last_remind_days_left, left $days_left, stage $remind_before]")
+
+    def setUp(self):
+        super().setUp()
+        custom = Path(self.tmp.name) / "last.txt"
+        custom.write_text(self.TEXT, encoding="utf-8")
+        self.template = render.load_template(custom)
+        self.simple_board(member=True)
+
+    def messages(self) -> list[str]:
+        return [p["message"] for p in self.fake.posts]
+
+    def test_each_reminder_counts_down_to_the_last_one(self):
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(12), notifyees=[U1], remind="12;10")
+        self.go(today=TODAY)                                  # 13 Oct: the 12-days-before reminder
+        self.assertEqual(self.go(today=TODAY + timedelta(days=1)).sent, 0)     # 14 Oct: nothing new
+        self.go(today=TODAY + timedelta(days=2))              # 15 Oct: the 10-days-before reminder
+        self.assertEqual(self.messages(), [
+            "by 2026-10-15 (15/10): 2 days left [last 10, left 12, stage 12]",
+            "by 2026-10-15 (15/10): 0 days left [last 10, left 10, stage 10]"])
+
+    def test_a_card_first_seen_after_its_last_reminder_day_shows_the_real_negative_number(self):
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(12), notifyees=[U1], remind="12;10")
+        self.go(today=TODAY + timedelta(days=4))              # 17 Oct: 8 days left, the 10-day reminder applies
+        self.assertEqual(self.messages(), ["by 2026-10-15 (15/10): -2 days left [last 10, left 8, stage 10]"])
+
+    def test_the_order_the_list_was_typed_in_does_not_matter(self):
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(12), notifyees=[U1], remind="12;10")
+        self.fake.add_card("b1", "c2", "B", due_ms=in_days(12), notifyees=[U2], remind="10; 12;10;0")
+        self.go()
+        self.assertEqual(len(self.fake.posts), 2)
+        self.assertEqual(len(set(self.messages())), 1)
+
+    def test_a_card_with_one_reminder_counts_zero_on_that_day(self):
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(7), notifyees=[U1], remind="7")
+        self.go()
+        self.assertEqual(self.messages(), ["by 2026-10-13 (13/10): 0 days left [last 7, left 7, stage 7]"])
+
+    def test_a_changed_due_date_moves_the_last_reminder_with_it(self):
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(12), notifyees=[U1], remind="12;10")
+        self.go()
+        self.fake.cards["b1"][0]["properties"]["p_due"] = json.dumps({"from": in_days(14)})
+        self.go(today=TODAY + timedelta(days=1))              # now 13 days left: still before the first reminder
+        self.go(today=TODAY + timedelta(days=2))              # 12 days left on the new date: reminders start over
+        self.assertEqual(len(self.messages()), 2)
+        self.assertEqual(self.messages()[-1], "by 2026-10-17 (17/10): 2 days left [last 10, left 12, stage 12]")
+
+    def test_a_dry_run_shows_the_same_text_and_sends_nothing(self):
+        self.fake.add_card("b1", "c1", "A", due_ms=in_days(12), notifyees=[U1], remind="12;10")
+        with self.assertLogs("reminder", level="INFO") as logged:
+            self.dry_run()
+        self.assertIn("by 2026-10-15 (15/10): 2 days left", "\n".join(logged.output))
+        self.assertEqual(self.fake.posts, [])
 
 
 if __name__ == "__main__":
