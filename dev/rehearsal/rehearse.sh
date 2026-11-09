@@ -228,10 +228,14 @@ cmd_deploy() {
       cfg=$(mktemp -d)                         # an empty Docker config: no login, like a server that never logged in
       if DOCKER_CONFIG=$cfg docker manifest inspect "$image" >/dev/null 2>&1; then
         echo "   yes: it can be pulled without a login"
+      elif docker manifest inspect "$image" >/dev/null 2>&1; then
+        echo "   only WITH a login: the package is private, so the server needs 'docker login ghcr.io' once"
+        echo "   (docs/setup.md, 'If the package is private'). It worked here with this machine's login."
       else
-        echo "!! NO. That image cannot be pulled without a login: the version was not published yet (push the"
-        echo "!! tag), or its package is private (make it public), or the name is wrong. Fix this BEFORE the"
-        echo "!! real deployment, or the server needs 'docker login ghcr.io' (README.md, 'Before the real deployment')."
+        echo "!! NO. That image cannot be pulled, with or without this machine's login: the version was not"
+        echo "!! published yet (push the tag), or the name is wrong, or the package is private and this machine"
+        echo "!! has no login for it (docker login ghcr.io, then run deploy again). Fix this BEFORE the real"
+        echo "!! deployment (README.md, 'Before the real deployment')."
       fi
       rm -rf "$cfg"
     fi

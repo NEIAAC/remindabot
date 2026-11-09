@@ -94,8 +94,11 @@ if [ "$1" = compose ]; then
 fi
 case "$1" in
   manifest)
-    printf 'manifest empty-config=%s: %s\n' "$([ -z "$(ls -A "${DOCKER_CONFIG:-/nonexistent}" 2>/dev/null)" ] && echo yes || echo no)" "$*" >> "$FAKE_LOG"
+    # which registry login the call has: none (an empty config dir), or the machine's own (the default)
+    if [ -z "${DOCKER_CONFIG:-}" ]; then cfg=default; elif [ -z "$(ls -A "$DOCKER_CONFIG" 2>/dev/null)" ]; then cfg=empty; else cfg=other; fi
+    printf 'manifest config=%s: %s\n' "$cfg" "$*" >> "$FAKE_LOG"
     [ "${FAKE_MANIFEST_FAILS:-}" = yes ] && exit 1
+    [ "${FAKE_MANIFEST_NEEDS_LOGIN:-}" = yes ] && [ "$cfg" = empty ] && exit 1
     exit 0 ;;
   inspect) printf 'C\tsvc\taaaaaaaaaaaa\t2026-10-19T10:00:00Z\t0\timage:1\n'; exit 0 ;;
 esac
@@ -345,12 +348,26 @@ class Script(unittest.TestCase):
         self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
         self.assertIn("yes: it can be pulled without a login", ok.stdout)
         asked = [line for line in self.calls() if line.startswith("manifest")]
-        self.assertIn("manifest inspect ghcr.io/neiaac/remindabot:1.0.0", asked[-1])
-        self.assertIn("empty-config=yes", asked[-1], "the check must not use the person's own registry login")
+        self.assertIn("manifest inspect ghcr.io/neiaac/remindabot:1.0.0", asked[0])
+        self.assertIn("config=empty", asked[0], "the first check must not use the person's own registry login")
+        self.assertEqual(len(asked), 1, "a public image needs no second look")
         failed = self.deploy("published", FAKE_MANIFEST_FAILS="yes")
         self.assertEqual(failed.returncode, 0)
-        self.assertIn("NO. That image cannot be pulled without a login", failed.stdout)
+        self.assertIn("NO. That image cannot be pulled, with or without this machine's login", failed.stdout)
         self.assertNotIn("local-source", (self.work / ".env").read_text())
+
+    def test_a_private_package_is_told_apart_from_a_missing_one(self):
+        """Pullable only with a login: that is the normal case when an organisation forbids public packages."""
+        self.after.write_text(WITH_IMAGE)
+        self.up()
+        private = self.deploy("published", FAKE_MANIFEST_NEEDS_LOGIN="yes")
+        self.assertEqual(private.returncode, 0, private.stdout + private.stderr)
+        self.assertIn("only WITH a login", private.stdout)
+        self.assertIn("docker login ghcr.io", private.stdout)
+        self.assertNotIn("NO.", private.stdout)
+        asked = [line for line in self.calls() if line.startswith("manifest")]
+        self.assertEqual([("config=empty" in a, "config=default" in a) for a in asked[-2:]], [(True, False), (False, True)],
+                         "first without a login, then with the machine's own")
 
     def test_with_a_published_image_local_mode_builds_it_here_under_the_same_name(self):
         self.after.write_text(WITH_IMAGE)

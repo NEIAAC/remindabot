@@ -144,6 +144,17 @@ class WhatTheServerRuns(unittest.TestCase):
                 self.assertIn(line, snippet)
         self.assertNotRegex(snippet, r"\bports:", "the chat-command port is never published")
 
+    def test_a_private_package_is_pulled_with_a_read_only_token_that_never_touches_a_command_line(self):
+        text = (ROOT / "docs" / "setup.md").read_text(encoding="utf-8")
+        self.assertIn("If the package is private", text)
+        self.assertIn("**only** the `read:packages` scope", text)
+        login = [line for line in text.splitlines() if "docker login ghcr.io" in line]
+        self.assertTrue(login)
+        for line in login:
+            self.assertIn("--password-stdin", line, "a token as an argument shows in `ps`")
+            self.assertNotRegex(line, r"(?:\s-p\s|--password(?:\s|=))")
+        self.assertIn("read -rs CR_PAT", text, "typed without echo, not into the shell history")
+
     def test_the_documented_version_exists_in_the_project(self):
         documented = re.search(r"remindabot:(\d+\.\d+\.\d+)", self.setup).group(1)
         version = re.search(r'(?m)^version = "(\d+\.\d+\.\d+)"$', (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1)
