@@ -11,7 +11,7 @@ from remindabot import render
 from remindabot.boards import (Card, Schema, decode_card, decode_date, decode_people, decode_remind_list,
                         describe_schema_problem, find_schema)
 from remindabot.config import Config, ConfigError
-from remindabot.logic import MAX_REMIND_BEFORE_DAYS, evaluate, ignored_values, usable_days
+from remindabot.logic import MAX_REMIND_BEFORE_DAYS, evaluate, ignored_values, last_reminder, usable_days
 
 LISBON = ZoneInfo("Europe/Lisbon")
 SEED = 20261013
@@ -137,6 +137,93 @@ class Fuzz(unittest.TestCase):
                         deleted=rng.random() < 0.1)
             decision = evaluate(card, rng.choice([date.min, date(2026, 10, 13), date.max]))
             self.assertIsInstance(decision.send, bool)
+
+    def test_last_reminder_never_raises_and_is_the_smallest_usable_number(self):
+        rng = random.Random(SEED + 5)
+        dues = [None, date.min, date.max, date(1970, 1, 1), date(2026, 10, 25), date(2200, 1, 1)]
+        for _ in range(self.N):
+            numbers = tuple(rng.choice([0, -1, 1, 12, 3660, 3661, 10 ** 9, 10 ** 40, -10 ** 40])
+                            for _ in range(rng.randrange(0, 5)))
+            card = Card(id="c", title="t", due=rng.choice(dues), remind_before=numbers, notifyees=("u",),
+                        is_template=False, deleted=False)
+            found = last_reminder(card)
+            usable = [n for n in numbers if 1 <= n <= MAX_REMIND_BEFORE_DAYS]
+            if not usable or card.due is None:
+                self.assertIsNone(found, (numbers, card.due))
+                continue
+            days, day = found
+            self.assertEqual(days, min(usable))
+            if day is not None:
+                self.assertEqual(card.due - day, timedelta(days=days))
+
+    def test_a_subtraction_never_fails_whatever_the_values_are(self):
+        template = render.parse_template(
+            "$days_left-$last_remind_days_left|${remind_before}-$days_left-${last_remind_days_left}|$$days_left-$remind_before"
+            "|$days_left\\-$last_remind_days_left|$card_title-$board_title\\-$due_day-$due_month")
+        nasty = ["$responsible_name ${card_url} $$", "", "-", "-5", "007", " 12 ", "\uff11\uff12", "9" * 5000, "1e3",
+                 "$$days_left", "\u2014", "\\-", "1_0", "9" * 18, "9" * 19]
+        for first in nasty:
+            for second in nasty:
+                with self.subTest(first=first[:12], second=second[:12]):
+                    values = {name: first for name in render.PLACEHOLDERS} | {"last_remind_days_left": second}
+                    self.assertIsInstance(render.render(template, values), str)
+
+    def test_subtraction_matches_a_plain_reading_of_the_rules(self):
+        """Random templates made of variables, hyphens, escaped hyphens, `$$` and text, rendered by the real
+        thing and by a second reading of the rules that uses no regular expression: a variable, a joint and a
+        variable in a row form a chain, `-` subtracts when every value is plain digits, `\\-` is a hyphen."""
+        rng = random.Random(SEED + 9)
+        names = ["days_left", "remind_before", "last_remind_days_left", "due_day", "due_month", "card_title"]
+        pieces = ["var", "var", "var", "var", "-", "\\-", "$$", " ", "(", ")", "|"]
+        for _ in range(self.N // 4):
+            values = {name: rng.choice(["0", "7", "12", "007", "25", "Ana", "", "1.5", "-3", "1" * 19, "\u2014"])
+                      for name in render.PLACEHOLDERS}
+            template, tokens = "m ", [("text", "m ")]      # some text, as a template of only blanks is refused
+            for _ in range(rng.randrange(1, 12)):
+                piece = rng.choice(pieces)
+                if piece == "var":
+                    name, braced = rng.choice(names), rng.random() < 0.3
+                    template += "${" + name + "}" if braced else "$" + name
+                    tokens.append(("var", name))
+                else:
+                    template += piece
+                    tokens.append(("joint" if piece in ("-", "\\-") else "text", piece))
+            self.assertEqual(render.render(render.parse_template(template), values), self.read_plainly(tokens, values), template)
+
+    @staticmethod
+    def read_plainly(tokens, values) -> str:
+        """The expected message for `tokens`, worked out one token at a time."""
+        def number(name):
+            value = values[name]
+            return int(value) if value.isascii() and value.isdigit() and len(value) <= 18 else None
+
+        out, i = [], 0
+        while i < len(tokens):
+            kind, what = tokens[i]
+            if kind != "var":
+                out.append("$" if what == "$$" else what)
+                i += 1
+                continue
+            groups = [[what]]
+            while i + 2 < len(tokens) and tokens[i + 1][0] == "joint" and tokens[i + 2][0] == "var":
+                if tokens[i + 1][1] == "-":
+                    groups[-1].append(tokens[i + 2][1])
+                else:
+                    groups.append([tokens[i + 2][1]])
+                i += 2
+            i += 1
+            shown = []
+            for group in groups:
+                numbers = [number(name) for name in group]
+                if len(group) > 1 and None not in numbers:
+                    total = numbers[0]
+                    for more in numbers[1:]:
+                        total -= more
+                    shown.append(str(total))
+                else:
+                    shown.append("-".join(values[name] for name in group))
+            out.append("-".join(shown))
+        return "".join(out)
 
     def test_evaluate_matches_a_brute_force_oracle(self):
         """Walk the calendar day by day and compare with the rule: on each day exactly the card's

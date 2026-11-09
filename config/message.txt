@@ -7,18 +7,35 @@ language is just editing this file.
 
 Available variables (write them exactly like this, with a $ in front; for a literal $ use $$):
 
-  $responsible_name   name of the person who receives the message
-  $co_responsibles    the OTHER people told about the card (empty if there are none)
-  $card_title         title of the card
-  $board_title        name of the board
-  $due_date           due date, e.g.: 2026-10-25
-  $due_year           year of the due date, e.g.: 2026
-  $due_month          month of the due date, two digits, e.g.: 10
-  $due_day            day of the due date, two digits, e.g.: 25
-                      (to write the date your way, e.g. 25/10/2026: $due_day/$due_month/$due_year)
-  $days_left          days left, e.g.: 12 (there is no singular: 1 reads "1 days left")
-  $remind_before      the reminder that triggered this message, in days (7 = the "7 days before" reminder)
-  $card_url           direct link to the card
+  $responsible_name       name of the person who receives the message
+  $co_responsibles        the OTHER people told about the card (empty if there are none)
+  $card_title             title of the card
+  $board_title            name of the board
+  $due_date               due date, e.g.: 2026-10-25
+  $due_year               year of the due date, e.g.: 2026
+  $due_month              month of the due date, two digits, e.g.: 10
+  $due_day                day of the due date, two digits, e.g.: 25
+  $last_remind_date       day of the card's LAST reminder: the due date minus the smallest number of
+                          "Remind Before" (12;10 -> 10 days before the due date), e.g.: 2026-10-15
+  $last_remind_year       year of that day, e.g.: 2026
+  $last_remind_month      month of that day, two digits, e.g.: 10
+  $last_remind_day        day of that day, two digits, e.g.: 15
+                          (to write a date your way, e.g. 25/10/2026: $due_day/$due_month/$due_year)
+  $days_left              days left until the due date, e.g.: 12 (there is no singular: 1 reads "1 days left")
+  $remind_before          the reminder that triggered this message, in days (7 = the "7 days before" reminder)
+  $last_remind_days_left  the card's LAST reminder, in days: the smallest number of "Remind Before", e.g.: 10
+  $card_url               direct link to the card
+
+Numbers can be SUBTRACTED: write $days_left-$last_remind_days_left (no spaces) for the days left until
+the card's last reminder day. With 12 days left and a last reminder 10 days before the due date it is 2, and 0
+on the last reminder's day itself; for a card first seen after that day it is negative (-2). Any variables that
+hold whole numbers can be subtracted left to right: the days above and the parts of a date ($due_day, $due_month,
+$due_year, $last_remind_day...). If one of them is not a number, the text is shown as it is.
+
+So a "-" between two variables is a subtraction. To write a plain hyphen there use \- : the date 25-10-2026 is
+$due_day\-$due_month\-$due_year (with plain hyphens it would be -2011), and $days_left-$last_remind_days_left\-$due_day
+is 2-25. A \- anywhere else is left as you typed it. Titles that are numbers count too: use \- between $card_title
+and $board_title.
 
 WARNING: if a variable is followed by a letter, a number or _ (for example the _ of Markdown italics),
 write it with braces: ${board_title}. Without braces, "$board_title_" would be read as another variable.

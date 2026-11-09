@@ -28,7 +28,7 @@ from typing import Callable, Optional
 from . import render
 from .boards import Boards, Card, decode_card, describe_schema_problem, find_schema
 from .config import Config
-from .logic import MAX_REMIND_BEFORE_DAYS, evaluate, ignored_values
+from .logic import MAX_REMIND_BEFORE_DAYS, evaluate, ignored_values, last_reminder
 from .driver import ApiError, Driver, display_name
 from .store import RECLAIMED, Store
 
@@ -440,6 +440,8 @@ def _remind_card(cfg, mm, store, template, summary, budget: _Budget, today, item
     assert card.due is not None
     due_key = card.due.isoformat()   # part of the state key: a new due date means new reminders
     days_left = (card.due - today).days
+    # The card's last reminder, for messages that count to it (a stage always has at least one number).
+    last_days, last_day = last_reminder(card) or (stage, None)
     people = _recipients(mm, summary, item)
 
     def note(user: dict, state: str) -> None:
@@ -477,8 +479,10 @@ def _remind_card(cfg, mm, store, template, summary, budget: _Budget, today, item
             "card_title": render.sanitize_inline(card.title, fallback=render.UNKNOWN),
             "board_title": render.sanitize_inline(ctx.title),
             **render.date_values(card.due),
+            **render.date_values(last_day, "last_remind"),
             "days_left": str(days_left),
             "remind_before": str(stage),
+            "last_remind_days_left": str(last_days),
             "card_url": ctx.card_url(cfg.site_url, card.id),
         })
 

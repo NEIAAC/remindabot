@@ -53,6 +53,26 @@ def stage_for(days: tuple[int, ...], days_left: int) -> Optional[int]:
     return min(reached) if reached else None
 
 
+def last_reminder(card: Card) -> Optional[tuple[int, Optional[date]]]:
+    """The LAST reminder of a card: how many days before the due date it is (the smallest usable number
+    of "Remind Before", whatever order they were typed in) and the day it falls on.
+
+        Remind Before = 12;10, due on the 25th  ->  (10, the 15th)
+
+    A message can use it as the deadline for what the reminders ask for. The day is None when it would
+    fall before year 1 (an absurd due date), and the whole answer is None without a due date or any
+    usable number.
+    """
+    days = usable_days(card.remind_before)
+    if not days or card.due is None:
+        return None
+    last = days[-1]
+    try:
+        return last, card.due - timedelta(days=last)
+    except OverflowError:
+        return last, None
+
+
 def ignored_values(card: Card) -> list[str]:
     """What was written in "Remind Before" but cannot be a reminder, for a warning in the log.
 

@@ -13,7 +13,7 @@ from remindabot.boards import (Card, decode_card, decode_date, decode_people, de
                         describe_schema_problem, find_schema)
 from remindabot.config import Config, ConfigError
 from remindabot.driver import display_name
-from remindabot.logic import evaluate, ignored_values, plan, usable_days
+from remindabot.logic import evaluate, ignored_values, last_reminder, plan, usable_days
 from remindabot.overrides import Overrides, SettingError, parse_cap, parse_send_at
 from remindabot.store import NEW, RECLAIMED, Store
 
@@ -319,6 +319,36 @@ class Plan(unittest.TestCase):
             self.assertEqual(plan(card, today, (), 30), [])
 
 
+class LastReminder(unittest.TestCase):
+    """The card's LAST reminder: the smallest usable "Remind Before" number, and the day it falls on."""
+
+    def test_it_is_the_smallest_number_whatever_order_it_was_typed_in(self):
+        for typed in ((12, 10), (10, 12), (12, 10, 12), (0, 12, 10, -1)):
+            with self.subTest(typed=typed):
+                self.assertEqual(last_reminder(make_card(remind_before=typed)), (10, date(2026, 10, 15)))
+
+    def test_a_single_number_is_its_own_last_reminder(self):
+        self.assertEqual(last_reminder(make_card(remind_before=(7,))), (7, date(2026, 10, 18)))
+
+    def test_numbers_that_are_not_reminders_do_not_count(self):
+        self.assertEqual(last_reminder(make_card(remind_before=(12, 3661, 0, -1))), (12, date(2026, 10, 13)))
+
+    def test_without_a_reminder_or_a_due_date_there_is_none(self):
+        for card in (make_card(remind_before=()), make_card(remind_before=(0, -1)),
+                     make_card(remind_before=(3661,)), make_card(due=None)):
+            self.assertIsNone(last_reminder(card))
+
+    def test_a_day_before_year_one_is_no_day_instead_of_a_crash(self):
+        self.assertEqual(last_reminder(make_card(due=date(1, 1, 5), remind_before=(10,))), (10, None))
+
+    def test_it_is_the_day_the_bot_really_sends_the_last_message(self):
+        for typed in ((12, 10), (7, 3, 1), (5,), (30, 14, 2)):
+            with self.subTest(typed=typed):
+                card = make_card(remind_before=typed)
+                day, stage = plan(card, date(2026, 9, 1), [], 90)[-1]
+                self.assertEqual((stage, day), last_reminder(card))
+
+
 class Greeting(unittest.TestCase):
     """Who the message calls the person: the nickname, else the full name, else their @username."""
 
@@ -414,6 +444,149 @@ class Templates(unittest.TestCase):
     def test_remind_before_placeholder_is_the_stage_and_is_whole_days(self):
         t = render.load_template(self.write("$remind_before|${remind_before}"))
         self.assertEqual(render.render(t, {n: "7" for n in render.PLACEHOLDERS}), "7|7")
+
+
+class DayCounts(unittest.TestCase):
+    """`$days_left-$last_remind_days_left`: variables with whole-number values, joined by "-", are subtracted
+    by the renderer; `\\-` between two variables is a plain hyphen instead."""
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def say(self, text: str, **changes: str) -> str:
+        values = ({name: "x" for name in render.PLACEHOLDERS} | render.date_values(date(2026, 10, 25))
+                  | render.date_values(date(2026, 10, 15), "last_remind")
+                  | {"days_left": "12", "remind_before": "12", "last_remind_days_left": "10"} | changes)
+        return render.render(render.parse_template(text), values)
+
+    def test_the_days_left_until_the_last_reminder(self):
+        for days_left, shown in (("12", "2"), ("11", "1"), ("10", "0"), ("8", "-2")):
+            with self.subTest(days_left=days_left):
+                self.assertEqual(self.say("$days_left-$last_remind_days_left days left", days_left=days_left),
+                                 f"{shown} days left")
+
+    def test_any_way_of_writing_a_variable_works_and_any_two_numbers_can_be_used(self):
+        for text, shown in (("${days_left}-${last_remind_days_left}", "2"), ("$days_left-${last_remind_days_left}", "2"),
+                            ("${days_left}-$last_remind_days_left", "2"), ("$remind_before-$last_remind_days_left", "2"),
+                            ("$last_remind_days_left-$days_left", "-2"), ("$days_left-$days_left", "0"),
+                            ("$days_left-$last_remind_days_left-$remind_before", "-10")):
+            with self.subTest(text=text):
+                self.assertEqual(self.say(text), shown)
+
+    def test_any_variable_that_is_a_whole_number_can_be_subtracted(self):
+        """Not only the day counts: the parts of a date are numbers too."""
+        for text, shown in (("$due_day-$days_left", "13"), ("$due_year-$due_day", "2001"),
+                            ("$due_month-$due_day", "-15"), ("$last_remind_day-$due_month", "5"),
+                            ("$days_left-$last_remind_days_left-$due_day", "-23"),
+                            ("${due_day}-${last_remind_day}", "10"), ("$due_month-$due_month", "0")):
+            with self.subTest(text=text):
+                self.assertEqual(self.say(text), shown)
+        self.assertEqual(self.say("$due_month-$due_day", due_month="05", due_day="03"), "2", "leading zeros are fine")
+
+    def test_a_date_written_with_plain_dashes_is_a_sum_so_it_is_written_with_escaped_ones(self):
+        self.assertEqual(self.say("$due_day-$due_month-$due_year"), "-2011")
+        self.assertEqual(self.say("$due_day\\-$due_month\\-$due_year"), "25-10-2026")
+        self.assertEqual(self.say("$last_remind_year\\-$last_remind_month\\-$last_remind_day"), "2026-10-15")
+        self.assertEqual(self.say("${due_day}\\-${due_month}\\-${due_year}"), "25-10-2026")
+        self.assertEqual(self.say("$due_date"), "2026-10-25", "the due date as one variable needs no escaping")
+
+    def test_an_escaped_hyphen_between_two_variables_is_a_hyphen_and_ends_the_subtraction(self):
+        for text, shown in ((r"$days_left\-$last_remind_days_left", "12-10"),
+                            (r"$days_left-$last_remind_days_left\-$due_day", "2-25"),
+                            (r"$due_day\-$days_left-$last_remind_days_left", "25-2"),
+                            (r"$days_left-$last_remind_days_left\-$days_left-$last_remind_days_left", "2-2"),
+                            (r"$days_left\-$last_remind_days_left\-$remind_before", "12-10-12")):
+            with self.subTest(text=text):
+                self.assertEqual(self.say(text), shown)
+
+    def test_an_escaped_hyphen_anywhere_else_is_left_for_markdown(self):
+        """Only between two variables is `\\-` special: elsewhere it is not touched (Markdown itself reads it as a
+        hyphen, and it keeps a line from starting a list)."""
+        for text in (r"\-$days_left", r"$days_left\-", r"$days_left\-10", r"a \- b", r"\- item", r"$days_left \- $remind_before",
+                     r"$days_left\\-$remind_before", r"$days_left\-$$"):
+            with self.subTest(text=text):
+                self.assertEqual(self.say(text), text.replace("$days_left", "12").replace("$remind_before", "12")
+                                 .replace("$$", "$"))
+
+    def test_text_that_looks_like_a_sum_is_not_one_unless_every_value_is_a_number(self):
+        self.assertEqual(self.say("$responsible_name-$days_left", responsible_name="Ana"), "Ana-12")
+        self.assertEqual(self.say("$days_left-$last_remind_days_left-$responsible_name", responsible_name="Ana"), "12-10-Ana",
+                         "one value that is not a number leaves the whole chain as text")
+        self.assertEqual(self.say("$days_left-$last_remind_days_left-$due_day", due_day="\u2014"), "12-10-\u2014")
+        self.assertEqual(self.say("Ana-$days_left-$last_remind_days_left"), "Ana-2")
+
+    def test_a_card_or_board_titled_with_a_number_is_a_sum_unless_it_is_escaped(self):
+        """The one thing to know about subtracting any variable: a title is text typed by a person, and it
+        can be a number. The message writer decides, with `\\-`, so nothing is ever calculated by surprise."""
+        self.assertEqual(self.say("$card_title-$board_title", card_title="7", board_title="3"), "4")
+        self.assertEqual(self.say(r"$card_title\-$board_title", card_title="7", board_title="3"), "7-3")
+        self.assertEqual(self.say("$card_title-$board_title", card_title="Poster", board_title="3"), "Poster-3")
+
+    def test_only_a_dash_between_two_variables_is_a_subtraction(self):
+        for text, shown in (("$days_left - $last_remind_days_left", "12 - 10"), ("$days_left (-$last_remind_days_left)", "12 (-10)"),
+                            ("$days_left-", "12-"), ("-$days_left", "-12"), ("$days_left-10", "12-10")):
+            with self.subTest(text=text):
+                self.assertEqual(self.say(text), shown)
+
+    def test_a_result_never_runs_into_the_variable_before_it(self):
+        """`$card_title` then the number 2 must not read as a variable called `card_title2`."""
+        self.assertEqual(self.say("$card_title$days_left-$last_remind_days_left", card_title="T"), "T2")
+        self.assertEqual(self.say("$card_title$days_left-$last_remind_days_left$card_title", card_title="T"), "T2T")
+        self.assertEqual(self.say("$days_left-$last_remind_days_left$due_day"), "225")
+        self.assertEqual(self.say("$remind_before$days_left-$last_remind_days_left", remind_before="7"), "72")
+        self.assertEqual(self.say("$due_day$due_day-$days_left"), "2513")
+
+    def test_an_escaped_dollar_is_never_the_start_of_a_sum(self):
+        self.assertEqual(self.say("$$days_left-$last_remind_days_left"), "$days_left-10")
+        self.assertEqual(self.say("$$ $days_left-$last_remind_days_left"), "$ 2")
+        self.assertEqual(self.say("$$$days_left-$last_remind_days_left"), "$2")
+
+    def test_values_that_are_not_plain_whole_numbers_are_shown_as_they_are_never_an_error(self):
+        too_long = "1" * 19
+        for odd in ("$a", "abc", "", "1.5", "$$", " 12", "12 ", "-5", "+5", "1_0", "1e3", "\uff11\uff12", "\u0663", too_long, "9" * 5000):
+            with self.subTest(days_left=odd[:20]):
+                self.assertEqual(self.say("$days_left-$last_remind_days_left", days_left=odd), f"{odd}-10")
+        self.assertEqual(self.say("$days_left-$last_remind_days_left", days_left="1" * 18), str(int("1" * 18) - 10))
+
+    def test_text_typed_by_users_is_never_calculated(self):
+        self.assertEqual(self.say("$card_title", card_title="$days_left-$last_remind_days_left"),
+                         "$days_left-$last_remind_days_left")
+
+    def test_a_variable_that_does_not_exist_is_never_taken_for_a_number(self):
+        """Even when a template did not go through `parse_template`, `$days_left-$nothing` is an error, not -12."""
+        values = {name: "1" for name in render.PLACEHOLDERS}
+        for text in ("$days_left-$nothing", "$nothing-$days_left", r"$days_left\-$nothing"):
+            with self.subTest(text=text), self.assertRaises(KeyError):
+                render.render(render.Template(text), values)
+
+    def test_a_misspelt_variable_in_a_sum_is_still_refused_when_the_message_is_saved(self):
+        for bad in ("$days_left-$last_remind_days_lft", "$Days_left-$last_remind_days_left", "${days_left}-${nothing}"):
+            with self.subTest(bad=bad), self.assertRaises(render.TemplateError):
+                render.parse_template(bad)
+
+    def test_messages_written_before_the_last_reminder_existed_render_exactly_as_they_did(self):
+        old = "Olá $responsible_name! $card_title ($board_title) até $due_day/$due_month/$due_year, faltam $days_left dias ($remind_before) $card_url"
+        values = {"responsible_name": "Ana", "co_responsibles": "", "card_title": "Workshop", "board_title": "NEI",
+                  "days_left": "12", "remind_before": "12", "card_url": "https://chat.test/c"}
+        values |= render.date_values(date(2026, 10, 25)) | render.date_values(date(2026, 10, 15), "last_remind")
+        values["last_remind_days_left"] = "10"
+        self.assertEqual(render.render(render.parse_template(old), values),
+                         "Olá Ana! Workshop (NEI) até 25/10/2026, faltam 12 dias (12) https://chat.test/c")
+
+    def test_the_last_reminders_date_has_the_same_four_names_and_numbers_as_the_due_date(self):
+        self.assertEqual(render.date_values(date(2026, 3, 4), "last_remind"),
+                         {"last_remind_date": "2026-03-04", "last_remind_year": "2026", "last_remind_month": "03",
+                          "last_remind_day": "04"})
+        self.assertEqual(set(render.date_values(date(2026, 3, 4))) | set(render.date_values(date(2026, 3, 4), "last_remind")),
+                         {name for name in render.PLACEHOLDERS if name.endswith(("_date", "_year", "_month", "_day"))})
+        self.assertEqual(set(render.date_values(None, "last_remind").values()), {render.UNKNOWN},
+                         "a day that does not exist is the dash, with no word of the code's own")
+
+    def test_the_configuration_guide_names_every_variable_and_says_how_to_subtract(self):
+        text = (self.ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
+        for name in render.PLACEHOLDERS:
+            with self.subTest(variable=name):
+                self.assertIn(f"`${name}`", text)
+        self.assertIn("$days_left-$last_remind_days_left", text)
+        self.assertIn("\\-", text, "the way to write a hyphen between two variables")
 
 
 class StoreTests(unittest.TestCase):

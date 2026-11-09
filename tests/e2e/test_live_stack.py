@@ -378,7 +378,7 @@ class LiveStack(unittest.TestCase):
                    "... a text box prefilled with the current message", str(field)[:200])
         submit = {"url": form["url"], "callback_id": dialog["callback_id"], "state": dialog["state"],
                   "channel_id": channel, "team_id": team, "cancelled": False,
-                  "submission": {"message": "Hi $responsible_name!\nCheck: $card_title"}}
+                  "submission": {"message": "Hi $responsible_name!\nCheck: $card_title\nLeft: $days_left-$last_remind_days_left"}}
         wrong = s.call("/api/v4/actions/dialogs/submit", admin, "POST", {**submit, "submission": {"message": "Hi $card_titel"}})
         self.check(wrong[0] == 200 and "card_titel" in json.dumps(wrong[1]),
                    "a message with a typo is rejected with the reason shown in the form", str(wrong)[:300])
@@ -391,6 +391,9 @@ class LiveStack(unittest.TestCase):
         preview = dm_posts()
         self.check(len(preview) == before + 1 and "Check: Example card" in preview[0]["message"],
                    "/remind_test uses the new message", preview[0]["message"][:160] if preview else "")
+        self.check(bool(preview) and "Left: 4" in preview[0]["message"],
+                   "... and counts to the last reminder ($days_left-$last_remind_days_left: 7 left, last reminder 3)",
+                   preview[0]["message"][:160] if preview else "")
         self.check("message" in execute("/remind_reset message"), "/remind_reset message goes back to the file")
         forged = s.call("/api/v4/actions/dialogs/submit", admin, "POST", {**submit, "state": "forged"})
         self.check("expired" in json.dumps(forged[1]), "a forged form state is refused", str(forged)[:200])

@@ -12,7 +12,7 @@ You need: Mattermost with the Boards plugin, Docker Compose, and system-admin ri
 
    ```yaml
      reminder:
-       image: ghcr.io/neiaac/remindabot:1.0.0     # a published release; the version is what you run
+       image: ghcr.io/neiaac/remindabot:1.1.0     # a published release; the version is what you run
        container_name: chat-reminder
        restart: unless-stopped
        depends_on:
